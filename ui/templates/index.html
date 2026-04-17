@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ROV Control</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <h1>ROV Control</h1>
+  <div class="grid">
+    <video id="cam0" autoplay muted playsinline></video>
+    <video id="cam1" autoplay muted playsinline></video>
+    <video id="cam2" autoplay muted playsinline></video>
+    <div class="placeholder">
+      <p>Controls coming soon...</p>
+    </div>
+  </div>
+
+  <script>
+    const WHEP_BASE = "http://{{ host }}:{{ port }}";
+
+    async function startCam(videoId, path) {
+      const video = document.getElementById(videoId);
+      const pc = new RTCPeerConnection();
+      pc.addTransceiver("video", { direction: "recvonly" });
+      pc.ontrack = (e) => { video.srcObject = e.streams[0]; };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      const res = await fetch(WHEP_BASE + "/" + path + "/whep", {
+        method: "POST",
+        headers: { "Content-Type": "application/sdp" },
+        body: pc.localDescription.sdp,
+      });
+
+      const answer = await res.text();
+      await pc.setRemoteDescription({ type: "answer", sdp: answer });
+    }
+
+    const cameras = [
+      { id: "cam0", path: "cam0" },
+      { id: "cam1", path: "cam1" },
+      { id: "cam2", path: "cam2" },
+    ];
+
+    cameras.forEach((c) => startCam(c.id, c.path));
+  </script>
+</body>
+</html>
