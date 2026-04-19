@@ -17,3 +17,7 @@ build/
 *.log
 
 *.bak*
+
+mediamtx/mediamtx
+mediamtx/LICENSE
+
