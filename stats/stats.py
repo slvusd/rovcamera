@@ -18,7 +18,20 @@ HISTORY_S  = 600
 SAMPLE_S   = 5
 MAX_POINTS = HISTORY_S // SAMPLE_S          # 120 points
 NUM_CORES  = os.cpu_count() or 4
-ROS2_SETUP = "/opt/ros/humble/setup.bash"   # adjust distro if needed
+ROS2_SETUP    = "/opt/ros/jazzy/setup.bash"
+SLVROV_SETUP  = "/home/pi/slvrov_ros/install/setup.bash"
+ROS_DOMAIN_ID = "42"
+
+# Shell preamble mirroring start_rov.sh — sources both workspaces
+# and sets domain ID so we see the same nodes
+def _ros2_preamble():
+    parts = []
+    if os.path.exists(ROS2_SETUP):
+        parts.append(f"source {ROS2_SETUP}")
+    if os.path.exists(SLVROV_SETUP):
+        parts.append(f"source {SLVROV_SETUP}")
+    parts.append(f"export ROS_DOMAIN_ID={ROS_DOMAIN_ID}")
+    return " && ".join(parts)
 
 history      = collections.deque(maxlen=MAX_POINTS)
 history_lock = threading.Lock()
@@ -110,12 +123,13 @@ def process_cpu_breakdown():
     ros2_proc = {}
     if os.path.exists(ROS2_SETUP):
         try:
-            cmd = f"source {ROS2_SETUP} && ros2 node list 2>/dev/null"
+            preamble = _ros2_preamble()
+            cmd = preamble + " && ros2 node list 2>/dev/null"
             r = subprocess.run(["bash","-c",cmd], capture_output=True, timeout=5)
             nodes = [n for n in r.stdout.decode().splitlines() if n.startswith("/")]
             for node in nodes:
                 # ros2 node info gives the PID
-                cmd2 = f"source {ROS2_SETUP} && ros2 node info {node} 2>/dev/null"
+                cmd2 = preamble + f" && ros2 node info {node} 2>/dev/null"
                 r2 = subprocess.run(["bash","-c",cmd2], capture_output=True, timeout=3)
                 for line in r2.stdout.decode().splitlines():
                     if "pid" in line.lower():
@@ -243,8 +257,8 @@ def ros2_nodes():
     if not os.path.exists(ROS2_SETUP):
         return {"available":False,"nodes":[],"error":f"setup not found: {ROS2_SETUP}"}
     try:
-        r=subprocess.run(["bash","-c",f"source {ROS2_SETUP} && ros2 node list 2>/dev/null"],
-                         capture_output=True,timeout=5)
+        cmd = _ros2_preamble() + " && ros2 node list 2>/dev/null"
+        r=subprocess.run(["bash","-c",cmd], capture_output=True, timeout=5)
         nodes=[n for n in r.stdout.decode().strip().splitlines() if n.startswith("/")]
         return {"available":True,"count":len(nodes),"nodes":nodes}
     except subprocess.TimeoutExpired:
