@@ -28,6 +28,7 @@ SLVROV_SETUP     = "/home/pi/slvrov_ros/install/setup.bash"
 ROS_DOMAIN_ID    = "42"
 FASTDDS_PROFILE  = "/home/pi/fastdds_config.xml"
 MTX_API          = "http://localhost:9997"
+RECORDINGS_BASE  = "/home/pi/rov_sessions/recordings"
 
 # Shell preamble mirroring start_rov.sh — sources both workspaces
 # and sets domain ID so we see the same nodes
@@ -345,6 +346,26 @@ def process_count(name):
 
 def process_running(name): return process_count(name)>0
 
+def recordings_list():
+    """Return {segments: {cam: [{name,url,mb}]}, all_names: [...]} for the playback UI."""
+    segments = {}
+    for cam in CAMS:
+        cam_dir = os.path.join(RECORDINGS_BASE, cam)
+        if os.path.isdir(cam_dir):
+            files = sorted(glob.glob(os.path.join(cam_dir, "*.mp4")))
+        else:
+            files = []
+        segments[cam] = [
+            {
+                "name": os.path.splitext(os.path.basename(f))[0],
+                "url":  f"/recordings/file/{cam}/{os.path.basename(f)}",
+                "mb":   round(os.path.getsize(f) / 1e6, 1),
+            }
+            for f in files
+        ]
+    all_names = sorted({s["name"] for cam in CAMS for s in segments[cam]})
+    return {"segments": segments, "all_names": all_names}
+
 def recording_status():
     """Query MediaMTX API for per-cam record setting."""
     out = {}
@@ -470,6 +491,7 @@ footer{font-family:var(--mono);font-size:.6rem;color:var(--dim);
 <header>
   <span class="logo">⬡ ROV</span>
   <span class="sub">PI STATS</span>
+  <a href="/playback" style="font-family:var(--mono);font-size:.6rem;letter-spacing:1.5px;color:var(--dim);border:1px solid var(--border);border-radius:2px;padding:2px 8px;text-decoration:none">▶ PLAYBACK</a>
   <span class="uptime" id="uptime-hdr">—</span>
 </header>
 <div class="grid">
@@ -839,12 +861,196 @@ update();setInterval(update,POLL_MS);
 </html>
 """
 
+PLAYBACK_PAGE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ROV Playback</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;500&display=swap');
+:root{--bg:#0a0c0f;--surface:#111418;--border:#1e2530;--accent:#00e5ff;
+      --danger:#ff3b5c;--text:#c8d6e5;--dim:#4a5a6a;--mono:'Share Tech Mono',monospace}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Barlow',sans-serif;font-weight:300;
+     height:100vh;display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;gap:10px;padding:0 16px;height:42px;
+       background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
+.logo{font-family:var(--mono);color:var(--accent);letter-spacing:3px;font-size:1rem}
+.back-btn{font-family:var(--mono);font-size:.65rem;letter-spacing:1.5px;color:var(--dim);
+           border:1px solid var(--border);border-radius:2px;padding:3px 8px;
+           text-decoration:none;background:transparent}
+.back-btn:hover{color:var(--text);border-color:var(--dim)}
+select.seg-select{font-family:var(--mono);font-size:.65rem;letter-spacing:1px;
+                  background:var(--surface);color:var(--text);border:1px solid var(--border);
+                  border-radius:2px;padding:3px 8px;cursor:pointer;min-width:220px}
+select.seg-select:focus{outline:none;border-color:var(--accent)}
+.speed-group{display:flex;gap:4px}
+.btn-speed{font-family:var(--mono);font-size:.6rem;letter-spacing:1px;
+           border:1px solid var(--border);border-radius:2px;padding:2px 7px;
+           cursor:pointer;background:transparent;color:var(--dim)}
+.btn-speed:hover{color:var(--text);border-color:var(--dim)}
+.btn-speed.active{color:var(--accent);border-color:var(--accent);background:rgba(0,229,255,.07)}
+.btn-pp{font-family:var(--mono);font-size:.7rem;letter-spacing:1.5px;
+        border:1px solid rgba(0,229,255,.4);border-radius:2px;padding:3px 12px;
+        cursor:pointer;background:transparent;color:var(--accent)}
+.btn-pp:hover{background:rgba(0,229,255,.08)}
+.time-disp{font-family:var(--mono);font-size:.65rem;color:var(--dim);
+           letter-spacing:1px;margin-left:auto}
+.pb-grid{flex:1;display:grid;grid-template-columns:1fr 1fr 1fr;
+         gap:2px;background:var(--border);overflow:hidden}
+.pb-pane{background:var(--surface);display:flex;flex-direction:column;
+         position:relative;overflow:hidden}
+.pb-pane video{flex:1;width:100%;object-fit:contain;background:#000;min-height:0}
+.cam-label{position:absolute;top:6px;left:8px;font-family:var(--mono);font-size:.55rem;
+           color:var(--accent);letter-spacing:2px;opacity:.7;z-index:2;pointer-events:none}
+.cam-status{font-size:.5rem;opacity:.6;letter-spacing:1px;margin-left:6px}
+.seek-wrap{padding:4px 8px;background:var(--surface);border-top:1px solid var(--border);flex-shrink:0}
+input[type=range].seek{width:100%;accent-color:var(--accent);cursor:pointer;height:3px}
+</style>
+</head>
+<body>
+<header>
+  <a class="back-btn" href="/">← STATS</a>
+  <span class="logo">PLAYBACK</span>
+  <select class="seg-select" id="seg-select"><option value="">Loading…</option></select>
+  <div class="speed-group">
+    <button class="btn-speed" onclick="setSpeed(0.25)">¼×</button>
+    <button class="btn-speed" onclick="setSpeed(0.5)">½×</button>
+    <button class="btn-speed active" onclick="setSpeed(1)">1×</button>
+    <button class="btn-speed" onclick="setSpeed(2)">2×</button>
+    <button class="btn-speed" onclick="setSpeed(4)">4×</button>
+    <button class="btn-speed" onclick="setSpeed(8)">8×</button>
+    <button class="btn-speed" onclick="setSpeed(16)">16×</button>
+  </div>
+  <button class="btn-pp" id="btn-pp" onclick="togglePlay()">▶ PLAY</button>
+  <span class="time-disp" id="time-disp">— / —</span>
+</header>
+<div class="pb-grid">
+  <div class="pb-pane">
+    <div class="cam-label">CAM0 <span class="cam-status" id="st-cam0">—</span></div>
+    <video id="v-cam0" preload="metadata" playsinline></video>
+    <div class="seek-wrap"><input type="range" class="seek" id="sk-cam0" min="0" max="100" value="0" step="0.1"></div>
+  </div>
+  <div class="pb-pane">
+    <div class="cam-label">CAM1 <span class="cam-status" id="st-cam1">—</span></div>
+    <video id="v-cam1" preload="metadata" playsinline></video>
+    <div class="seek-wrap"><input type="range" class="seek" id="sk-cam1" min="0" max="100" value="0" step="0.1"></div>
+  </div>
+  <div class="pb-pane">
+    <div class="cam-label">CAM2 <span class="cam-status" id="st-cam2">—</span></div>
+    <video id="v-cam2" preload="metadata" playsinline></video>
+    <div class="seek-wrap"><input type="range" class="seek" id="sk-cam2" min="0" max="100" value="0" step="0.1"></div>
+  </div>
+</div>
+<script>
+const CAMS=["cam0","cam1","cam2"];
+const V={},SK={};
+CAMS.forEach(c=>{V[c]=document.getElementById("v-"+c);SK[c]=document.getElementById("sk-"+c);});
+let segments={},allNames=[],currentSpeed=1,syncing=false;
+
+async function loadList(){
+  const d=await fetch("/recordings/list").then(r=>r.json());
+  segments=d.segments; allNames=d.all_names;
+  const sel=document.getElementById("seg-select");
+  sel.innerHTML="";
+  if(!allNames.length){sel.innerHTML='<option value="">No recordings found</option>';return;}
+  let lastDate=null,grp=null;
+  allNames.slice().reverse().forEach(name=>{
+    const parts=name.split("_");
+    const date=parts[0];
+    const pretty=parts.slice(1).join("_").replace(/-/g,":");
+    if(date!==lastDate){
+      grp=document.createElement("optgroup");
+      grp.label=date; sel.appendChild(grp); lastDate=date;
+    }
+    const opt=document.createElement("option");
+    opt.value=name;
+    const avail=CAMS.filter(c=>(segments[c]||[]).some(s=>s.name===name));
+    opt.textContent=`${pretty}  [${avail.join(" ")}]`;
+    grp.appendChild(opt);
+  });
+  sel.onchange=()=>loadSeg(sel.value);
+  sel.value=allNames[allNames.length-1];
+  loadSeg(allNames[allNames.length-1]);
+}
+
+function loadSeg(name){
+  if(!name)return;
+  pauseAll();
+  CAMS.forEach(c=>{
+    const seg=(segments[c]||[]).find(s=>s.name===name);
+    const st=document.getElementById("st-"+c);
+    if(seg){V[c].src=seg.url;V[c].load();V[c].playbackRate=currentSpeed;st.textContent=seg.mb+" MB";}
+    else{V[c].src="";st.textContent="no recording";}
+    SK[c].value=0;
+  });
+  document.getElementById("time-disp").textContent="— / —";
+  document.getElementById("btn-pp").textContent="▶ PLAY";
+}
+
+function master(){return CAMS.map(c=>V[c]).find(v=>v.src&&v.readyState>0)||V["cam0"];}
+function playAll(){CAMS.forEach(c=>{if(V[c].src)V[c].play().catch(()=>{})});document.getElementById("btn-pp").textContent="⏸ PAUSE";}
+function pauseAll(){CAMS.forEach(c=>V[c].pause());document.getElementById("btn-pp").textContent="▶ PLAY";}
+function togglePlay(){const m=master();if(m.paused)playAll();else pauseAll();}
+function setSpeed(s){
+  currentSpeed=s;
+  CAMS.forEach(c=>{V[c].playbackRate=s;});
+  document.querySelectorAll(".btn-speed").forEach(b=>{
+    const label=b.textContent;
+    const spd=label==="¼×"?0.25:label==="½×"?0.5:parseFloat(label);
+    b.classList.toggle("active",spd===s);
+  });
+}
+
+function fmtTime(s){
+  if(!isFinite(s))return"--:--";
+  const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=Math.floor(s%60);
+  return h>0?`${h}:${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`
+            :`${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;
+}
+
+CAMS.forEach(c=>{
+  V[c].addEventListener("timeupdate",()=>{
+    if(!V[c].duration)return;
+    SK[c].value=(V[c].currentTime/V[c].duration)*100;
+    if(c===CAMS[0])document.getElementById("time-disp").textContent=
+      `${fmtTime(V[c].currentTime)} / ${fmtTime(V[c].duration)}`;
+  });
+  SK[c].addEventListener("input",()=>{
+    if(syncing)return; syncing=true;
+    const t=(SK[c].value/100)*(V[c].duration||0);
+    CAMS.forEach(cc=>{if(V[cc].src&&V[cc].duration){V[cc].currentTime=t;SK[cc].value=SK[c].value;}});
+    syncing=false;
+  });
+  V[c].addEventListener("seeked",()=>{
+    if(c!==CAMS[0]||syncing)return; syncing=true;
+    CAMS.slice(1).forEach(cc=>{if(V[cc].src&&V[cc].readyState>0)V[cc].currentTime=V[c].currentTime;});
+    syncing=false;
+  });
+  V[c].addEventListener("ended",()=>{if(c===CAMS[0])document.getElementById("btn-pp").textContent="▶ PLAY";});
+});
+
+loadList();
+</script>
+</body>
+</html>
+"""
+
 # ── HTTP handler ──────────────────────────────────────────────
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path=self.path.split("?")[0]
         if path=="/":self._html(DASHBOARD)
+        elif path=="/playback":self._html(PLAYBACK_PAGE)
+        elif path=="/recordings/list":self._json(recordings_list())
+        elif path.startswith("/recordings/file/"):
+            parts=path.split("/")   # ['','recordings','file',cam,filename]
+            if len(parts)==5 and parts[3] in CAMS:
+                cam,fname=parts[3],os.path.basename(parts[4])
+                fpath=os.path.join(RECORDINGS_BASE,cam,fname)
+                self._file(fpath,"video/mp4")
+            else:self.send_response(404);self.end_headers()
         elif path.startswith("/cam/") and path.endswith(".jpg"):
             cam=path[5:-4]
             with cam_lock: data=cam_thumbs.get(cam)
@@ -904,6 +1110,22 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type","text/html; charset=utf-8")
         self.send_header("Content-Length",str(len(body)))
         self.end_headers();self.wfile.write(body)
+
+    def _file(self,path,mime):
+        try:
+            size=os.path.getsize(path)
+            self.send_response(200)
+            self.send_header("Content-Type",mime)
+            self.send_header("Content-Length",str(size))
+            self.send_header("Accept-Ranges","bytes")
+            self.end_headers()
+            with open(path,"rb") as f:
+                while True:
+                    chunk=f.read(65536)
+                    if not chunk:break
+                    self.wfile.write(chunk)
+        except FileNotFoundError:self.send_response(404);self.end_headers()
+        except Exception:self.send_response(500);self.end_headers()
 
     def log_message(self,fmt,*args):
         if int(args[1])>=400:super().log_message(fmt,*args)

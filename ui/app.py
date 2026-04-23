@@ -286,41 +286,6 @@ def gallery(cam):
     })
 
 
-# ── Playback ───────────────────────────────────────────────────────────────────
-
-RECORDINGS_BASE = os.path.join(SESSION_BASE, "recordings")
-RECORDING_CAMS  = ["cam0", "cam1", "cam2"]
-
-
-@app.route("/playback")
-def playback():
-    return render_template("playback.html")
-
-
-@app.route("/recordings/list")
-def recordings_list():
-    segments = {}
-    for cam in RECORDING_CAMS:
-        cam_dir = os.path.join(RECORDINGS_BASE, cam)
-        files = sorted(glob.glob(os.path.join(cam_dir, "*.mp4"))) if os.path.isdir(cam_dir) else []
-        segments[cam] = [
-            {
-                "name": os.path.splitext(os.path.basename(f))[0],
-                "url":  f"/recordings/file/{cam}/{os.path.basename(f)}",
-                "mb":   round(os.path.getsize(f) / 1e6, 1),
-            }
-            for f in files
-        ]
-    # Build a union of all segment names so the UI can show all time slots
-    all_names = sorted({s["name"] for cam in RECORDING_CAMS for s in segments[cam]})
-    return jsonify({"segments": segments, "all_names": all_names})
-
-
-@app.route("/recordings/file/<cam>/<filename>")
-def recordings_file(cam, filename):
-    cam_dir = os.path.join(RECORDINGS_BASE, cam)
-    return send_from_directory(cam_dir, filename)
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080, debug=True, threaded=True)
