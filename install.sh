@@ -182,19 +182,16 @@ install_ui() {
     "$UI_DIR/venv/bin/pip" install --quiet -r "$UI_DIR/requirements.txt"
     ok "Dependencies installed."
 
-    # Make sure pipeline script is executable
-    [ -f "$REPO/science/rov_pipeline.sh" ] && chmod +x "$REPO/science/rov_pipeline.sh"
-
     service_install "rov-ui" \
 "[Unit]
-Description=ROV Camera UI (Flask)
+Description=ROV Camera UI
 After=network.target mediamtx.service
 
 [Service]
 Type=simple
 User=${USER}
 WorkingDirectory=${UI_DIR}
-ExecStart=${UI_DIR}/venv/bin/python3 ${UI_DIR}/app.py
+ExecStart=${UI_DIR}/venv/bin/gunicorn -w 4 -b 0.0.0.0:8080 app:app
 Restart=on-failure
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
