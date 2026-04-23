@@ -136,6 +136,10 @@ install_stats() {
         ok "venv already exists."
     fi
 
+    # Find the ROS2 Python site-packages path (not on PYTHONPATH without sourcing setup.bash)
+    ROS2_PYPATH=$(find /opt/ros -maxdepth 4 -name "rclpy" -type d 2>/dev/null | \
+                  head -1 | xargs dirname 2>/dev/null || true)
+
     service_install "rov-stats" \
 "[Unit]
 Description=ROV Pi Stats Monitor
@@ -145,6 +149,7 @@ After=network.target
 Type=simple
 User=${USER}
 WorkingDirectory=${STATS_DIR}
+Environment=PYTHONPATH=${ROS2_PYPATH}
 ExecStart=${STATS_DIR}/venv/bin/python3 ${STATS_SRC}
 Restart=on-failure
 RestartSec=5
