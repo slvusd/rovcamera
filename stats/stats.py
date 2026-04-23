@@ -22,9 +22,10 @@ NUM_CORES  = os.cpu_count() or 4
 CAMS           = ["cam0", "cam1", "cam2"]
 THUMB_DIR      = "/tmp"
 THUMB_INTERVAL = 5    # seconds between file reads (ffmpeg writes every 5s)
-ROS2_SETUP    = "/opt/ros/jazzy/setup.bash"
-SLVROV_SETUP  = "/home/pi/slvrov_ros/install/setup.bash"
-ROS_DOMAIN_ID = "42"
+ROS2_SETUP       = "/opt/ros/jazzy/setup.bash"
+SLVROV_SETUP     = "/home/pi/slvrov_ros/install/setup.bash"
+ROS_DOMAIN_ID    = "42"
+FASTDDS_PROFILE  = "/home/pi/fastdds_config.xml"
 
 # Shell preamble mirroring start_rov.sh — sources both workspaces
 # and sets domain ID so we see the same nodes
@@ -268,6 +269,10 @@ _ros2_lock  = threading.Lock()
 
 def _ensure_ros2_node():
     global _rclpy, _ros2_node
+    # Set env vars before rclpy.init() so DDS uses the same discovery config
+    os.environ["ROS_DOMAIN_ID"] = ROS_DOMAIN_ID
+    if os.path.exists(FASTDDS_PROFILE):
+        os.environ["FASTRTPS_DEFAULT_PROFILES_FILE"] = FASTDDS_PROFILE
     if _rclpy is None:
         try:
             import rclpy as _rclpy_mod
@@ -275,7 +280,6 @@ def _ensure_ros2_node():
         except ImportError:
             return False
     try:
-        os.environ.setdefault("ROS_DOMAIN_ID", ROS_DOMAIN_ID)
         if not _rclpy.ok():
             _rclpy.init()
         if _ros2_node is None:
