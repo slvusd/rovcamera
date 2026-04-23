@@ -262,58 +262,45 @@ def throttle_flags():
     except Exception:
         return {"raw":None,"error":"vcgencmd unavailable"}
 
-# ── ROS2 via rclpy (no subprocess, no bash sourcing) ──────────
-_rclpy      = None   # module, set on first successful import
-_ros2_node  = None   # long-lived rclpy node
-_ros2_lock  = threading.Lock()
+# ── ROS2 node list (on-demand only, never polled) ─────────────
+# Only runs when explicitly requested via POST /ros2/refresh.
+# Uses nice -n 19 so it cannot preempt real-time control processes.
+_ros2_cache      = {"available": False, "nodes": [], "error": "click ⟳ to check"}
+_ros2_cache_lock = threading.Lock()
+_ros2_running    = False   # prevents concurrent refreshes
 
-_ros2_init_error = None   # last error string from _ensure_ros2_node
-
-def _ensure_ros2_node():
-    global _rclpy, _ros2_node, _ros2_init_error
-    import sys as _sys
-    os.environ["ROS_DOMAIN_ID"] = ROS_DOMAIN_ID
-    if os.path.exists(FASTDDS_PROFILE):
-        os.environ["FASTRTPS_DEFAULT_PROFILES_FILE"] = FASTDDS_PROFILE
-    if _rclpy is None:
-        # Insert the real ROS2 rclpy at the front of sys.path so no stub wins
-        ros_site_pkgs = sorted(glob.glob("/opt/ros/*/lib/python*/site-packages"), reverse=True)
-        for rsp in ros_site_pkgs:
-            if os.path.isdir(os.path.join(rsp, "rclpy")):
-                if rsp not in _sys.path:
-                    _sys.path.insert(0, rsp)
-                break
-        try:
-            import rclpy as _rclpy_mod
-            _rclpy = _rclpy_mod
-        except ImportError as e:
-            _ros2_init_error = f"rclpy import failed: {e}"
-            return False
+def _run_ros2_refresh():
+    global _ros2_running
     try:
-        if _ros2_node is None:
-            _rclpy.init()
-            _ros2_node = _rclpy.create_node("rov_stats_monitor")
-        _ros2_init_error = None
-        return True
+        r = subprocess.run(
+            ["nice", "-n", "19", "ros2", "node", "list"],
+            capture_output=True, timeout=10,
+        )
+        nodes = sorted(n for n in r.stdout.decode().splitlines() if n.startswith("/"))
+        result = {"available": True, "count": len(nodes), "nodes": nodes}
+    except FileNotFoundError:
+        result = {"available": False, "nodes": [], "error": "ros2 not on PATH"}
+    except subprocess.TimeoutExpired:
+        result = {"available": True, "nodes": [], "error": "timeout"}
     except Exception as e:
-        _ros2_init_error = str(e)
-        return False
+        result = {"available": True, "nodes": [], "error": str(e)}
+    with _ros2_cache_lock:
+        _ros2_cache.update(result)
+        _ros2_running = False
+
+def ros2_refresh():
+    """Trigger a non-blocking refresh; returns immediately."""
+    global _ros2_running
+    with _ros2_cache_lock:
+        if _ros2_running:
+            return
+        _ros2_running = True
+        _ros2_cache.update({"error": "refreshing…"})
+    threading.Thread(target=_run_ros2_refresh, daemon=True).start()
 
 def ros2_nodes():
-    with _ros2_lock:
-        if not _ensure_ros2_node():
-            return {"available": False, "nodes": [], "error": _ros2_init_error or "rclpy not available"}
-        try:
-            _rclpy.spin_once(_ros2_node, timeout_sec=0.5)
-            pairs = _ros2_node.get_node_names_and_namespaces()
-            nodes = sorted(
-                f"{ns.rstrip('/')}/{name}"
-                for name, ns in pairs
-                if name != "rov_stats_monitor"
-            )
-            return {"available": True, "count": len(nodes), "nodes": nodes}
-        except Exception as e:
-            return {"available": True, "nodes": [], "error": str(e)}
+    with _ros2_cache_lock:
+        return dict(_ros2_cache)
 
 def process_count(name):
     try:
@@ -527,7 +514,9 @@ footer{font-family:var(--mono);font-size:.6rem;color:var(--dim);
             &nbsp;<span id="proc-ffmpeg-count" style="font-family:var(--mono);font-size:.65rem;color:var(--dim)"></span>
       </span></div>
     <br>
-    <div class="card-title">ROS2 NODES <span id="ros2-count" style="color:var(--dim)"></span></div>
+    <div class="card-title">ROS2 NODES <span id="ros2-count" style="color:var(--dim)"></span>
+      <button onclick="refreshRos2()" style="margin-left:8px;font-family:var(--mono);font-size:.55rem;background:transparent;border:1px solid var(--border);color:var(--text-dim);padding:1px 6px;border-radius:2px;cursor:pointer">⟳</button>
+    </div>
     <span id="ros2-status" class="pill dim">—</span>
     <div class="node-list" id="ros2-nodes"></div>
   </div>
@@ -746,6 +735,9 @@ function refreshCamImages(){
 }
 refreshCamImages();
 setInterval(refreshCamImages,5000);
+function refreshRos2(){
+  fetch('/ros2/refresh',{method:'POST'}).catch(()=>{});
+}
 update();setInterval(update,POLL_MS);
 </script>
 </body>
@@ -787,6 +779,13 @@ class Handler(BaseHTTPRequestHandler):
                 "ros2_nodes":l.get("ros2",{}).get("count",0),
                 "uptime":l.get("uptime",{}).get("human"),
             })
+        else:self.send_response(404);self.end_headers()
+
+    def do_POST(self):
+        path=self.path.split("?")[0]
+        if path=="/ros2/refresh":
+            ros2_refresh()
+            self._json({"status":"refreshing"})
         else:self.send_response(404);self.end_headers()
 
     def _json(self,data):
