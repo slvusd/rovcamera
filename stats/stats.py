@@ -728,7 +728,7 @@ function refreshCamImages(){
   });
 }
 refreshCamImages();
-setInterval(refreshCamImages,60000);
+setInterval(refreshCamImages,5000);
 update();setInterval(update,POLL_MS);
 </script>
 </body>
