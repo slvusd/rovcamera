@@ -98,27 +98,39 @@ paths:
   cam0:
     runOnInit: >
       ffmpeg -f v4l2 -input_format mjpeg -video_size 640x480 -framerate 15
-      -i /dev/video0 -vf "vflip,hflip" -c:v libx264 -preset ultrafast -tune zerolatency
+      -i /dev/video0
+      -filter_complex "[0:v]vflip,hflip,split=2[rtsp][thumb];[thumb]fps=1/5[thumbout]"
+      -map "[rtsp]"
+      -c:v libx264 -preset ultrafast -tune zerolatency
       -pix_fmt yuv420p -b:v 1200k
       -g 15 -keyint_min 15 -sc_threshold 0
       -profile:v baseline -level 3.1
       -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+      -map "[thumbout]" -update 1 -q:v 4 /tmp/thumb_cam0.jpg
     runOnInitRestart: yes
   cam1:
     runOnInit: >
       ffmpeg -f v4l2 -input_format mjpeg -video_size 640x480 -framerate 15
-      -i /dev/video4 -c:v libx264 -preset ultrafast -tune zerolatency
+      -i /dev/video4
+      -filter_complex "[0:v]split=2[rtsp][thumb];[thumb]fps=1/5[thumbout]"
+      -map "[rtsp]"
+      -c:v libx264 -preset ultrafast -tune zerolatency
       -pix_fmt yuv420p -b:v 1200k
       -g 15 -keyint_min 15 -sc_threshold 0
       -profile:v baseline -level 3.1
       -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+      -map "[thumbout]" -update 1 -q:v 4 /tmp/thumb_cam1.jpg
     runOnInitRestart: yes
   cam2:
     runOnInit: >
       ffmpeg -f v4l2 -input_format mjpeg -video_size 640x480 -framerate 15
-      -i /dev/video8 -c:v libx264 -preset ultrafast -tune zerolatency
+      -i /dev/video8
+      -filter_complex "[0:v]split=2[rtsp][thumb];[thumb]fps=1/5[thumbout]"
+      -map "[rtsp]"
+      -c:v libx264 -preset ultrafast -tune zerolatency
       -pix_fmt yuv420p -b:v 1200k
       -g 15 -keyint_min 15 -sc_threshold 0
       -profile:v baseline -level 3.1
       -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+      -map "[thumbout]" -update 1 -q:v 4 /tmp/thumb_cam2.jpg
     runOnInitRestart: yes
