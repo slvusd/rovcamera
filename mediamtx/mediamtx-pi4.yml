@@ -1,0 +1,93 @@
+###############################################
+# MediaMTX - Pi 4 relay config
+#
+# Pulls streams from the ROV Pi 5 (192.168.3.52) via the
+# tether Ethernet link and re-serves them as WebRTC on the
+# Pi 4's WiFi interface so laptops on the 192.168.0.x WiFi
+# network can watch without needing to reach the ROV directly.
+###############################################
+
+logLevel: info
+logDestinations: [stdout]
+
+readTimeout: 10s
+writeTimeout: 10s
+writeQueueSize: 512
+
+###############################################
+# Authentication
+
+authMethod: internal
+authInternalUsers:
+- user: any
+  pass:
+  ips: []
+  permissions:
+  - action: publish
+    path:
+  - action: read
+    path:
+  - action: playback
+    path:
+- user: any
+  pass:
+  ips: ['127.0.0.1', '::1']
+  permissions:
+  - action: api
+
+###############################################
+# RTSP - disabled (relay only serves, doesn't publish)
+
+rtsp: no
+rtmp: no
+srt: no
+
+###############################################
+# HLS
+
+hls: yes
+hlsAddress: :8888
+hlsEncryption: no
+hlsAllowOrigin: '*'
+hlsAlwaysRemux: yes
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+hlsSegmentMaxSize: 50M
+hlsMuxerCloseAfter: 60s
+
+###############################################
+# WebRTC
+
+webrtc: yes
+webrtcAddress: :8889
+webrtcEncryption: no
+webrtcAllowOrigin: '*'
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: :8190
+webrtcIPsFromInterfaces: yes   # auto-advertise WiFi IP as ICE candidate
+webrtcICEServers2:
+  - url: stun:stun.l.google.com:19302
+
+###############################################
+# API
+
+api: yes
+apiAddress: :9997
+
+###############################################
+# Paths — pull from ROV Pi 5 on demand
+
+pathDefaults:
+  sourceOnDemand: yes              # only pull when someone is watching
+  sourceOnDemandStartTimeout: 10s
+  sourceOnDemandCloseAfter: 10s
+
+paths:
+  cam0:
+    source: rtsp://192.168.3.52:8554/cam0
+  cam1:
+    source: rtsp://192.168.3.52:8554/cam1
+  cam2:
+    source: rtsp://192.168.3.52:8554/cam2

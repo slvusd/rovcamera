@@ -208,6 +208,39 @@ WantedBy=multi-user.target" \
 # Dispatch
 # ════════════════════════════════════════════════════════════
 
+install_pi4() {
+    log "Pi 4 relay — mediamtx (pulls from ROV) + rov-ui"
+
+    MEDIAMTX_DIR="$REPO/mediamtx"
+    [ -f "$MEDIAMTX_DIR/mediamtx" ]         || die "mediamtx binary not found at $MEDIAMTX_DIR/mediamtx"
+    [ -f "$MEDIAMTX_DIR/mediamtx-pi4.yml" ] || die "mediamtx-pi4.yml not found at $MEDIAMTX_DIR/mediamtx-pi4.yml"
+
+    service_stop "mediamtx"
+
+    service_install "mediamtx" \
+"[Unit]
+Description=MediaMTX relay (Pi 4 — pulls from ROV Pi 5)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=${USER}
+WorkingDirectory=${MEDIAMTX_DIR}
+ExecStartPre=/bin/sleep 3
+ExecStart=${MEDIAMTX_DIR}/mediamtx ${MEDIAMTX_DIR}/mediamtx-pi4.yml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target" \
+        "mediamtx"
+
+    ok "mediamtx relay listening on :8889 (WebRTC) — pulling from 192.168.3.52"
+
+    install_ui
+}
+
 case "$INSTALL_TARGET" in
     all)
         install_mediamtx
@@ -217,14 +250,16 @@ case "$INSTALL_TARGET" in
     mediamtx) install_mediamtx ;;
     stats)    install_stats    ;;
     ui)       install_ui       ;;
+    pi4)      install_pi4      ;;
     *)
         echo ""
-        echo "Usage: $0 [all|mediamtx|stats|ui]"
+        echo "Usage: $0 [all|mediamtx|stats|ui|pi4]"
         echo ""
-        echo "  all       Install/reinstall everything (default)"
+        echo "  all       Install/reinstall everything (ROV Pi 5, default)"
         echo "  mediamtx  Reinstall mediamtx service only"
         echo "  stats     Reinstall rov-stats service only"
         echo "  ui        Reinstall rov-ui (Flask) service only"
+        echo "  pi4       Install Pi 4 surface relay (mediamtx + ui, no cameras)"
         echo ""
         exit 1
         ;;
