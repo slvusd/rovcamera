@@ -281,7 +281,7 @@ def _run_ros2_refresh():
         stderr = r.stderr.decode().strip()
         print(f"[ros2] rc={r.returncode} stdout={stdout!r} stderr={stderr[-200:]!r}", flush=True)
         nodes = sorted(n for n in stdout.splitlines() if n.startswith("/"))
-        result = {"available": True, "count": len(nodes), "nodes": nodes}
+        result = {"available": True, "count": len(nodes), "nodes": nodes, "error": None}
     except FileNotFoundError as e:
         print(f"[ros2] not found: {e}", flush=True)
         result = {"available": False, "nodes": [], "error": "ros2 not on PATH"}
@@ -303,7 +303,7 @@ def ros2_refresh():
         if _ros2_running:
             return
         _ros2_running = True
-        _ros2_cache.update({"error": "refreshing…"})
+        _ros2_cache.update({"error": "refreshing…", "nodes": [], "count": 0})
     threading.Thread(target=_run_ros2_refresh, daemon=True).start()
 
 def ros2_nodes():
