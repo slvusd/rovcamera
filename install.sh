@@ -178,22 +178,16 @@ install_ui() {
     log "rov-ui (Flask camera UI, port 8080)"
 
     UI_DIR="$REPO/ui"
-    [ -f "$UI_DIR/app.py" ]          || die "app.py not found at $UI_DIR/app.py"
-    [ -f "$UI_DIR/requirements.txt" ] || die "requirements.txt not found at $UI_DIR/requirements.txt"
-
-    command -v python3 &>/dev/null || die "python3 not found"
+    [ -f "$UI_DIR/app.py" ]           || die "app.py not found at $UI_DIR/app.py"
+    [ -f "$UI_DIR/requirements.txt" ]  || die "requirements.txt not found at $UI_DIR/requirements.txt"
 
     service_stop "rov-ui"
 
-    # Always rebuild the venv from the system Python to avoid inheriting
-    # whatever venv the shell has activated.
-    echo "  Rebuilding venv..."
+    echo "  Rebuilding venv from system Python..."
     rm -rf "$UI_DIR/venv"
     /usr/bin/python3 -m venv "$UI_DIR/venv"
-
-    echo "  Installing Python dependencies..."
     "$UI_DIR/venv/bin/pip" install --quiet -r "$UI_DIR/requirements.txt"
-    ok "Dependencies installed."
+    ok "Dependencies installed: $("$UI_DIR/venv/bin/pip" show flask | grep Version)"
 
     service_install "rov-ui" \
 "[Unit]
@@ -204,7 +198,7 @@ After=network.target mediamtx.service
 Type=simple
 User=${USER}
 WorkingDirectory=${UI_DIR}
-ExecStart=${UI_DIR}/venv/bin/gunicorn -w 4 -b 0.0.0.0:8080 app:app
+ExecStart=${UI_DIR}/venv/bin/python3 ${UI_DIR}/app.py
 Restart=on-failure
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
