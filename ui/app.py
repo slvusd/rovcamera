@@ -9,6 +9,7 @@ app = Flask(__name__)
 
 # RTSP host selected by client subnet — edit the values to reconfigure
 MEDIAMTX_HOST_BY_SUBNET = {
+    "127.0.0":   "127.0.0.1",    # browser on same machine
     "192.168.3": "192.168.3.52",
     "192.168.0": "192.168.0.8",
 }
