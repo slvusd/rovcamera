@@ -432,7 +432,7 @@ DASHBOARD = r"""<!DOCTYPE html>
 <title>ROV Pi Stats</title>
 <style>
 :root{--bg:#0a0c0f;--surface:#111418;--border:#1e2530;--accent:#00e5ff;
-      --warn:#ffb300;--danger:#ff3b5c;--ok:#00e676;--text:#c8d6e5;--dim:#4a5a6a;
+      --warn:#ffb300;--danger:#ff3b5c;--ok:#00e676;--text:#c8d6e5;--dim:#7a9eb8;
       --mono:'Share Tech Mono',monospace}
 @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;500&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -879,7 +879,7 @@ PLAYBACK_PAGE = r"""<!DOCTYPE html>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;500&display=swap');
 :root{--bg:#0a0c0f;--surface:#111418;--border:#1e2530;--accent:#00e5ff;
-      --danger:#ff3b5c;--text:#c8d6e5;--dim:#4a5a6a;--mono:'Share Tech Mono',monospace}
+      --danger:#ff3b5c;--text:#c8d6e5;--dim:#7a9eb8;--mono:'Share Tech Mono',monospace}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--text);font-family:'Barlow',sans-serif;font-weight:300;
      height:100vh;display:flex;flex-direction:column;overflow:hidden}
