@@ -282,9 +282,8 @@ def _ensure_ros2_node():
             _ros2_init_error = f"rclpy import failed: {e}"
             return False
     try:
-        if not _rclpy.ok():
-            _rclpy.init()
         if _ros2_node is None:
+            _rclpy.init()
             _ros2_node = _rclpy.create_node("rov_stats_monitor")
         _ros2_init_error = None
         return True
