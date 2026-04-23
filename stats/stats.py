@@ -42,7 +42,7 @@ history_lock = threading.Lock()
 
 # ── camera thumbnails ─────────────────────────────────────────
 cam_thumbs   = {}   # cam -> jpeg bytes
-cam_thumb_ts = {}   # cam -> epoch timestamp of last successful grab
+cam_thumb_ts = {}   # cam -> time.time() of last successful read
 cam_lock     = threading.Lock()
 
 def grab_thumbnails():
@@ -56,7 +56,7 @@ def grab_thumbnails():
             if data:
                 with cam_lock:
                     cam_thumbs[cam]   = data
-                    cam_thumb_ts[cam] = mtime
+                    cam_thumb_ts[cam] = time.time()
         except Exception:
             pass
 
@@ -324,7 +324,8 @@ def snapshot():
         "throttle":throttle_flags(),
         "ros2":ros2_nodes(),
         "cameras":{cam:{"ok": cam in cam_thumbs,
-                         "ts": cam_thumb_ts.get(cam)} for cam in CAMS},
+                         "fresh": cam in cam_thumbs and (time.time()-cam_thumb_ts.get(cam,0))<30
+                        } for cam in CAMS},
     }
 
 # ── sampler thread ────────────────────────────────────────────
@@ -708,14 +709,11 @@ async function update(){
     ['cam0','cam1','cam2'].forEach(cam=>{
       const info=cams[cam]??{};
       const pill=document.getElementById('pill-'+cam);
-      const now=Date.now()/1000;
-      const age=info.ts?(now-info.ts):null;
-      const stale=age!=null&&age>180;
-      if(info.ok&&!stale){pill.textContent='OK';pill.className='pill ok';anyOk=true;}
-      else if(info.ok&&stale){pill.textContent='STALE';pill.className='pill warn';}
+      if(info.ok&&info.fresh){pill.textContent='OK';pill.className='pill ok';anyOk=true;}
+      else if(info.ok&&!info.fresh){pill.textContent='STALE';pill.className='pill warn';}
       else{pill.textContent='OFFLINE';pill.className='pill danger';}
     });
-    document.getElementById('cam-ts').textContent=anyOk?'(updated every 60s)':'';
+    document.getElementById('cam-ts').textContent=anyOk?'(updated every 5s)':'';
 
     document.getElementById('uptime-hdr').textContent='UP '+(l.uptime?.human??'—');
     document.getElementById('footer-ts').textContent='LAST UPDATE: '+(l.iso??'—');
