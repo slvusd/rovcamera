@@ -739,9 +739,10 @@ update();setInterval(update,POLL_MS);
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path=="/":self._html(DASHBOARD)
-        elif self.path.startswith("/cam/") and self.path.endswith(".jpg"):
-            cam=self.path[5:-4]
+        path=self.path.split("?")[0]
+        if path=="/":self._html(DASHBOARD)
+        elif path.startswith("/cam/") and path.endswith(".jpg"):
+            cam=path[5:-4]
             with cam_lock: data=cam_thumbs.get(cam)
             if data:
                 self.send_response(200)
@@ -750,13 +751,13 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Cache-Control","no-cache")
                 self.end_headers();self.wfile.write(data)
             else:self.send_response(404);self.end_headers()
-        elif self.path=="/stats":
+        elif path=="/stats":
             with history_lock: data=history[-1] if history else {}
             self._json(data)
-        elif self.path=="/stats/history":
+        elif path=="/stats/history":
             with history_lock: data=list(history)
             self._json(data)
-        elif self.path=="/stats/quick":
+        elif path=="/stats/quick":
             with history_lock: l=history[-1] if history else {}
             self._json({
                 "temp_c":l.get("temp_c"),"cpu_pct":l.get("cpu_pct"),
