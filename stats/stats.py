@@ -271,10 +271,18 @@ _ros2_init_error = None   # last error string from _ensure_ros2_node
 
 def _ensure_ros2_node():
     global _rclpy, _ros2_node, _ros2_init_error
+    import sys as _sys
     os.environ["ROS_DOMAIN_ID"] = ROS_DOMAIN_ID
     if os.path.exists(FASTDDS_PROFILE):
         os.environ["FASTRTPS_DEFAULT_PROFILES_FILE"] = FASTDDS_PROFILE
     if _rclpy is None:
+        # Insert the real ROS2 rclpy at the front of sys.path so no stub wins
+        ros_site_pkgs = sorted(glob.glob("/opt/ros/*/lib/python*/site-packages"), reverse=True)
+        for rsp in ros_site_pkgs:
+            if os.path.isdir(os.path.join(rsp, "rclpy")):
+                if rsp not in _sys.path:
+                    _sys.path.insert(0, rsp)
+                break
         try:
             import rclpy as _rclpy_mod
             _rclpy = _rclpy_mod
