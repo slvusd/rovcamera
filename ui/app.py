@@ -1,46 +1,26 @@
 import os
 import signal
-import socket
 import subprocess
 import glob
 from flask import Flask, render_template, jsonify, send_from_directory, request
 
 app = Flask(__name__)
 
-# RTSP host selected by client subnet — edit the values to reconfigure
-MEDIAMTX_HOST_BY_SUBNET = {
-    "127.0.0":   "127.0.0.1",    # browser on same machine
-    "192.168.3": "192.168.3.52",
-    "192.168.0": "192.168.0.8",
-}
 MEDIAMTX_PORT = 8889
 MEDIAMTX_HLS_PORT = 8888
 
-
-def _reachable(host: str, port: int, timeout: float = 1.0) -> bool:
-    try:
-        with socket.create_connection((host, port), timeout=timeout):
-            return True
-    except OSError:
-        return False
-
-
-def _detect_default_host() -> str:
-    """Return the first configured host reachable on MEDIAMTX_PORT, or the first entry."""
-    for host in MEDIAMTX_HOST_BY_SUBNET.values():
-        if _reachable(host, MEDIAMTX_PORT):
-            return host
-    return next(iter(MEDIAMTX_HOST_BY_SUBNET.values()))
-
-
-MEDIAMTX_HOST_DEFAULT = _detect_default_host()
-print(f"[mediamtx] default host → {MEDIAMTX_HOST_DEFAULT}:{MEDIAMTX_PORT}")
+# Fallback host for server-side operations (RTSP snapshots).
+# Configurable if mediamtx runs on a separate machine.
+MEDIAMTX_HOST_DEFAULT = os.environ.get("MEDIAMTX_HOST", "127.0.0.1")
 
 
 def mediamtx_host() -> str:
-    client_ip = request.remote_addr or ""
-    subnet = ".".join(client_ip.split(".")[:3])
-    return MEDIAMTX_HOST_BY_SUBNET.get(subnet, MEDIAMTX_HOST_DEFAULT)
+    """Return the MediaMTX host the browser should use.
+
+    Uses the same IP/hostname the client used to reach Flask,
+    so it always works regardless of which network interface was used.
+    """
+    return request.host.split(":")[0]
 
 # Where the pipeline script lives — adjust if needed
 PIPELINE_SCRIPT = os.path.join(os.path.dirname(__file__), "..", "science", "rov_pipeline.sh")
