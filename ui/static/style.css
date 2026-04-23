@@ -92,6 +92,13 @@ header {
   overflow: hidden;
 }
 
+.cam-state {
+  font-size: 0.55rem;
+  opacity: 0.6;
+  letter-spacing: 1px;
+  margin-left: 6px;
+}
+
 .cam-label {
   position: absolute;
   top: 8px;

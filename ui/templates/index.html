@@ -21,7 +21,7 @@
     <!-- Camera panes 0–2 -->
     {% for cam in ['cam0', 'cam1', 'cam2'] %}
     <div class="cam-pane" id="pane-{{ cam }}">
-      <div class="cam-label">{{ cam.upper() }}</div>
+      <div class="cam-label">{{ cam.upper() }} <span class="cam-state" id="state-{{ cam }}">connecting…</span></div>
       <video id="{{ cam }}" autoplay muted playsinline></video>
       <div class="cam-controls">
         <button class="btn btn-capture" id="btn-capture-{{ cam }}"
@@ -66,23 +66,77 @@
     // ── WebRTC stream setup ──────────────────────────────────────────
     const WHEP_BASE = "http://{{ host }}:{{ port }}";
 
-    async function startCam(videoId, path) {
-      const video = document.getElementById(videoId);
-      const pc = new RTCPeerConnection();
-      pc.addTransceiver("video", { direction: "recvonly" });
-      pc.ontrack = (e) => { video.srcObject = e.streams[0]; };
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      const res = await fetch(`${WHEP_BASE}/${path}/whep`, {
-        method: "POST",
-        headers: { "Content-Type": "application/sdp" },
-        body: pc.localDescription.sdp,
-      });
-      const answer = await res.text();
-      await pc.setRemoteDescription({ type: "answer", sdp: answer });
+    const peerConns = {};
+    const pendingPlay = new Set();
+    let liveSet = new Set();
+
+    // On first interaction anywhere, start any videos blocked by autoplay policy
+    ["click","keydown","touchstart"].forEach(ev =>
+      document.addEventListener(ev, () => {
+        pendingPlay.forEach(v => v.play().catch(() => {}));
+        pendingPlay.clear();
+      }, { once: true, capture: true })
+    );
+
+    function camState(cam, msg) {
+      const el = document.getElementById(`state-${cam}`);
+      if (el) el.textContent = msg;
     }
 
-    ["cam0","cam1","cam2"].forEach(c => startCam(c, c));
+    function playVideo(cam, video) {
+      video.muted = true;
+      video.play().then(() => {
+        camState(cam, "▶ live");
+        liveSet.add(cam);
+      }).catch(() => {
+        // Autoplay blocked — queue for first user interaction
+        pendingPlay.add(video);
+        camState(cam, "tap anywhere to start");
+      });
+    }
+
+    async function startCam(cam) {
+      if (peerConns[cam]) { try { peerConns[cam].close(); } catch(_) {} }
+      liveSet.delete(cam);
+      camState(cam, "connecting…");
+
+      const video = document.getElementById(cam);
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+      });
+      peerConns[cam] = pc;
+
+      pc.addTransceiver("video", { direction: "recvonly" });
+      pc.ontrack = (e) => {
+        video.srcObject = e.streams[0] ?? new MediaStream([e.track]);
+        playVideo(cam, video);
+      };
+      pc.onconnectionstatechange = () => {
+        const s = pc.connectionState;
+        if (!liveSet.has(cam)) camState(cam, s);
+        if (["failed", "closed"].includes(s)) {
+          setTimeout(() => startCam(cam), 3000);
+        }
+      };
+
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        const res = await fetch(`${WHEP_BASE}/${cam}/whep`, {
+          method: "POST",
+          headers: { "Content-Type": "application/sdp" },
+          body: pc.localDescription.sdp,
+        });
+        if (!res.ok) throw new Error(`whep ${res.status}`);
+        await pc.setRemoteDescription({ type: "answer", sdp: await res.text() });
+      } catch(e) {
+        camState(cam, `retry (${e.message})`);
+        pc.close();
+        setTimeout(() => startCam(cam), 3000);
+      }
+    }
+
+    ["cam0","cam1","cam2"].forEach(c => startCam(c));
 
     // ── Capture state ────────────────────────────────────────────────
     const capturing = { cam0: false, cam1: false, cam2: false };
