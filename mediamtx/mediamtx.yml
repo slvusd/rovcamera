@@ -101,7 +101,7 @@ pathDefaults:
 paths:
   cam0:
     runOnInit: >
-      ffmpeg -f v4l2 -input_format mjpeg -video_size 640x480 -framerate 15
+      ffmpeg -y -f v4l2 -input_format mjpeg -video_size 640x480 -framerate 15
       -i /dev/video0
       -filter_complex "[0:v]vflip,hflip,split=2[rtsp][thumb];[thumb]fps=1/5[thumbout]"
       -map "[rtsp]"
@@ -114,7 +114,7 @@ paths:
     runOnInitRestart: yes
   cam1:
     runOnInit: >
-      ffmpeg -f v4l2 -input_format mjpeg -video_size 640x480 -framerate 15
+      ffmpeg -y -f v4l2 -input_format mjpeg -video_size 640x480 -framerate 15
       -i /dev/video4
       -filter_complex "[0:v]split=2[rtsp][thumb];[thumb]fps=1/5[thumbout]"
       -map "[rtsp]"
@@ -127,7 +127,7 @@ paths:
     runOnInitRestart: yes
   cam2:
     runOnInit: >
-      ffmpeg -f v4l2 -input_format mjpeg -video_size 640x480 -framerate 15
+      ffmpeg -y -f v4l2 -input_format mjpeg -video_size 640x480 -framerate 15
       -i /dev/video8
       -filter_complex "[0:v]split=2[rtsp][thumb];[thumb]fps=1/5[thumbout]"
       -map "[rtsp]"
