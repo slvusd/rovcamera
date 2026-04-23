@@ -272,33 +272,6 @@ _ros2_cache      = {"available": False, "nodes": [], "error": "click ⟳ to chec
 _ros2_cache_lock = threading.Lock()
 _ros2_running    = False   # prevents concurrent refreshes
 
-def _local_ip_suffix():
-    """Return the last octet of this machine's primary IP, e.g. '.52'."""
-    try:
-        r = subprocess.run(["hostname", "-I"], capture_output=True, timeout=2)
-        ips = r.stdout.decode().split()
-        if ips:
-            return "." + ips[0].split(".")[-1]
-    except Exception:
-        pass
-    return ""
-
-def _node_host(name):
-    """Return host label for a node: '.52' if local, 'remote' if not."""
-    try:
-        r = subprocess.run(
-            ["nice", "-n", "19", "ros2", "node", "info", name],
-            capture_output=True, timeout=6,
-        )
-        for line in r.stdout.decode().splitlines():
-            m = re.search(r'\bpid[:\s]+(\d+)', line, re.IGNORECASE)
-            if m:
-                pid = int(m.group(1))
-                return _local_ip_suffix() if os.path.exists(f"/proc/{pid}") else "remote"
-    except Exception:
-        pass
-    return "?"
-
 def _run_ros2_refresh():
     global _ros2_running
     print("[ros2] refresh started", flush=True)
@@ -307,8 +280,7 @@ def _run_ros2_refresh():
             ["nice", "-n", "19", "ros2", "node", "list"],
             capture_output=True, timeout=10,
         )
-        names = sorted(n for n in r.stdout.decode().splitlines() if n.startswith("/"))
-        nodes = [{"name": n, "host": _node_host(n)} for n in names]
+        nodes = sorted(n for n in r.stdout.decode().splitlines() if n.startswith("/"))
         result = {"available": True, "count": len(nodes), "nodes": nodes,
                   "error": None, "ts": time.time()}
         print(f"[ros2] found {len(nodes)} nodes", flush=True)
@@ -629,7 +601,10 @@ footer{font-family:var(--mono);font-size:.6rem;color:var(--dim);
         <button id="pca-btn" onclick="toggleThrusters()" style="font-family:var(--mono);font-size:.55rem;background:transparent;border:1px solid var(--border);color:var(--text);padding:2px 8px;border-radius:2px;cursor:pointer;letter-spacing:1px">⚡ START</button>
       </span>
     </div>
-    <br>
+  </div>
+
+  <!-- ROS2 nodes -->
+  <div class="card">
     <div class="card-title">ROS2 NODES <span id="ros2-count" style="color:var(--dim)"></span>
       <button onclick="refreshRos2()" style="margin-left:8px;font-family:var(--mono);font-size:.55rem;background:transparent;border:1px solid var(--border);color:var(--text-dim);padding:1px 6px;border-radius:2px;cursor:pointer">⟳</button>
     </div>
@@ -844,11 +819,7 @@ async function update(){
     else if(!ros.nodes?.length){rs.textContent='NO NODES';rs.className='pill warn';nl.innerHTML='<span class="node-none">No nodes running</span>'}
     else{
       rs.textContent='ACTIVE';rs.className='pill ok';
-      nl.innerHTML=ros.nodes.map(n=>{
-        const name=n.name??n;
-        const host=n.host??'';
-        return `<span>${name} <span style="color:var(--accent);opacity:.6">${host}</span></span>`;
-      }).join('');
+      nl.innerHTML=ros.nodes.map(n=>`<span>${n}</span>`).join('');
     }
 
     // cameras
