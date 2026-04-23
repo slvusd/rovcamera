@@ -10,7 +10,7 @@
 # GET /stats/quick    minimal dict for UI polling
 # ============================================================
 
-import collections, json, os, re, subprocess, threading, time
+import collections, json, os, re, subprocess, threading, time, urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 PORT       = 9000
@@ -18,6 +18,10 @@ HISTORY_S  = 600
 SAMPLE_S   = 5
 MAX_POINTS = HISTORY_S // SAMPLE_S          # 120 points
 NUM_CORES  = os.cpu_count() or 4
+
+CAMS          = ["cam0", "cam1", "cam2"]
+HLS_PORT      = 8888
+THUMB_INTERVAL = 60   # seconds between grabs
 ROS2_SETUP    = "/opt/ros/jazzy/setup.bash"
 SLVROV_SETUP  = "/home/pi/slvrov_ros/install/setup.bash"
 ROS_DOMAIN_ID = "42"
@@ -35,6 +39,32 @@ def _ros2_preamble():
 
 history      = collections.deque(maxlen=MAX_POINTS)
 history_lock = threading.Lock()
+
+# ── camera thumbnails ─────────────────────────────────────────
+cam_thumbs   = {}   # cam -> jpeg bytes
+cam_thumb_ts = {}   # cam -> epoch timestamp of last successful grab
+cam_lock     = threading.Lock()
+
+def grab_thumbnails():
+    for cam in CAMS:
+        url = f"http://127.0.0.1:{HLS_PORT}/{cam}/thumbnail.jpg"
+        try:
+            with urllib.request.urlopen(url, timeout=5) as r:
+                if r.status == 200:
+                    data = r.read()
+                    with cam_lock:
+                        cam_thumbs[cam]   = data
+                        cam_thumb_ts[cam] = time.time()
+        except Exception:
+            pass
+
+def thumbnail_sampler():
+    while True:
+        try:
+            grab_thumbnails()
+        except Exception as e:
+            print(f"Thumbnail error: {e}")
+        time.sleep(THUMB_INTERVAL)
 
 # ── per-process CPU tracking ──────────────────────────────────
 # Maps pid -> (utime+stime at last sample, wall_time at last sample)
@@ -291,6 +321,8 @@ def snapshot():
         "proc_cpu": process_cpu_breakdown(),
         "throttle":throttle_flags(),
         "ros2":ros2_nodes(),
+        "cameras":{cam:{"ok": cam in cam_thumbs,
+                         "ts": cam_thumb_ts.get(cam)} for cam in CAMS},
     }
 
 # ── sampler thread ────────────────────────────────────────────
@@ -453,6 +485,16 @@ footer{font-family:var(--mono);font-size:.6rem;color:var(--dim);
       <thead><tr><th>PROCESS</th><th>PID</th><th>CPU%</th><th></th></tr></thead>
       <tbody id="named-body"></tbody>
     </table>
+  </div>
+
+  <!-- Camera thumbnails -->
+  <div class="card" style="grid-column:span 2">
+    <div class="card-title">CAMERAS <span id="cam-ts" style="color:var(--dim);font-size:.55rem;letter-spacing:1px"></span></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      <div id="cam-cam0" style="flex:1;min-width:140px"><div class="sub-val" style="margin-bottom:4px">CAM0 <span id="pill-cam0" class="pill dim">—</span></div><img id="img-cam0" src="" style="width:100%;border:1px solid var(--border);background:#000;display:block;min-height:80px"></div>
+      <div id="cam-cam1" style="flex:1;min-width:140px"><div class="sub-val" style="margin-bottom:4px">CAM1 <span id="pill-cam1" class="pill dim">—</span></div><img id="img-cam1" src="" style="width:100%;border:1px solid var(--border);background:#000;display:block;min-height:80px"></div>
+      <div id="cam-cam2" style="flex:1;min-width:140px"><div class="sub-val" style="margin-bottom:4px">CAM2 <span id="pill-cam2" class="pill dim">—</span></div><img id="img-cam2" src="" style="width:100%;border:1px solid var(--border);background:#000;display:block;min-height:80px"></div>
+    </div>
   </div>
 
   <!-- Processes status + ROS2 -->
@@ -658,10 +700,35 @@ async function update(){
     else if(!ros.nodes?.length){rs.textContent='NO NODES';rs.className='pill warn';nl.innerHTML='<span class="node-none">No nodes running</span>'}
     else{rs.textContent='ACTIVE';rs.className='pill ok';nl.innerHTML=ros.nodes.map(n=>`<span>${n}</span>`).join('')}
 
+    // cameras
+    const cams=l.cameras??{};
+    let anyOk=false;
+    ['cam0','cam1','cam2'].forEach(cam=>{
+      const info=cams[cam]??{};
+      const pill=document.getElementById('pill-'+cam);
+      const now=Date.now()/1000;
+      const age=info.ts?(now-info.ts):null;
+      const stale=age!=null&&age>180;
+      if(info.ok&&!stale){pill.textContent='OK';pill.className='pill ok';anyOk=true;}
+      else if(info.ok&&stale){pill.textContent='STALE';pill.className='pill warn';}
+      else{pill.textContent='OFFLINE';pill.className='pill danger';}
+    });
+    document.getElementById('cam-ts').textContent=anyOk?'(updated every 60s)':'';
+
     document.getElementById('uptime-hdr').textContent='UP '+(l.uptime?.human??'—');
     document.getElementById('footer-ts').textContent='LAST UPDATE: '+(l.iso??'—');
   }catch(e){console.warn('fetch failed:',e)}
 }
+
+// Refresh thumbnail images every 60s
+function refreshCamImages(){
+  const t=Date.now();
+  ['cam0','cam1','cam2'].forEach(cam=>{
+    document.getElementById('img-'+cam).src='/cam/'+cam+'.jpg?t='+t;
+  });
+}
+refreshCamImages();
+setInterval(refreshCamImages,60000);
 update();setInterval(update,POLL_MS);
 </script>
 </body>
@@ -673,6 +740,16 @@ update();setInterval(update,POLL_MS);
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path=="/":self._html(DASHBOARD)
+        elif self.path.startswith("/cam/") and self.path.endswith(".jpg"):
+            cam=self.path[5:-4]
+            with cam_lock: data=cam_thumbs.get(cam)
+            if data:
+                self.send_response(200)
+                self.send_header("Content-Type","image/jpeg")
+                self.send_header("Content-Length",str(len(data)))
+                self.send_header("Cache-Control","no-cache")
+                self.end_headers();self.wfile.write(data)
+            else:self.send_response(404);self.end_headers()
         elif self.path=="/stats":
             with history_lock: data=history[-1] if history else {}
             self._json(data)
@@ -718,5 +795,6 @@ if __name__=="__main__":
         r=_proc_stat(pid)
         if r:_pid_prev[pid]=r
     t=threading.Thread(target=sampler,daemon=True);t.start()
+    th=threading.Thread(target=thumbnail_sampler,daemon=True);th.start()
     print(f"ROV stats → http://0.0.0.0:{PORT}/")
     HTTPServer(("0.0.0.0",PORT),Handler).serve_forever()
