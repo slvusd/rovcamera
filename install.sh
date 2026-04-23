@@ -136,9 +136,19 @@ install_stats() {
         ok "venv already exists."
     fi
 
-    # Find the ROS2 Python site-packages path (not on PYTHONPATH without sourcing setup.bash)
-    ROS2_PYPATH=$(find /opt/ros -maxdepth 4 -name "rclpy" -type d 2>/dev/null | \
-                  head -1 | xargs dirname 2>/dev/null || true)
+    # Write a wrapper that sources ROS2 env before starting Python.
+    # This sets LD_LIBRARY_PATH, PYTHONPATH, etc. that rclpy C extensions need.
+    WRAPPER="$STATS_DIR/start_stats.sh"
+    cat > "$WRAPPER" << 'WRAPPER_EOF'
+#!/bin/bash
+[ -f /opt/ros/jazzy/setup.bash ]          && source /opt/ros/jazzy/setup.bash
+[ -f /home/pi/slvrov_ros/install/setup.bash ] && source /home/pi/slvrov_ros/install/setup.bash
+export ROS_DOMAIN_ID=42
+[ -f /home/pi/fastdds_config.xml ] && export FASTRTPS_DEFAULT_PROFILES_FILE=/home/pi/fastdds_config.xml
+exec /home/pi/rovcamera/stats/venv/bin/python3 /home/pi/rovcamera/stats/stats.py
+WRAPPER_EOF
+    chmod +x "$WRAPPER"
+    ok "Wrapper script written: $WRAPPER"
 
     service_install "rov-stats" \
 "[Unit]
@@ -149,8 +159,7 @@ After=network.target
 Type=simple
 User=${USER}
 WorkingDirectory=${STATS_DIR}
-Environment=PYTHONPATH=${ROS2_PYPATH}
-ExecStart=${STATS_DIR}/venv/bin/python3 ${STATS_SRC}
+ExecStart=${WRAPPER}
 Restart=on-failure
 RestartSec=5
 
