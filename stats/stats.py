@@ -63,8 +63,9 @@ def grab_thumbnail(cam):
         if r.returncode == 0 and os.path.getsize(tmp_path) > 0:
             with open(tmp_path, "rb") as f:
                 return f.read()
-    except Exception:
-        pass
+        print(f"[thumb] {cam} rc={r.returncode} {r.stderr.decode()[-200:]}")
+    except Exception as e:
+        print(f"[thumb] {cam} exception: {e}")
     finally:
         try: os.unlink(tmp_path)
         except Exception: pass
