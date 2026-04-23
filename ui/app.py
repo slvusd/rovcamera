@@ -87,7 +87,10 @@ def latest_blend(cam: str) -> str | None:
 
 @app.route("/")
 def index():
-    return render_template("index.html", host=mediamtx_host(), port=MEDIAMTX_PORT)
+    host = mediamtx_host()
+    client_ip = request.remote_addr or "unknown"
+    return render_template("index.html", host=host, port=MEDIAMTX_PORT,
+                           client_ip=client_ip)
 
 
 # ── Static session files (frames + blend previews) ─────────────────────────────

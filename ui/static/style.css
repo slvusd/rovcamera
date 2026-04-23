@@ -56,6 +56,17 @@ header {
   margin-top: 2px;
 }
 
+.host-badge {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  cursor: default;
+}
+
 .status-bar {
   margin-left: auto;
   font-family: var(--mono);
