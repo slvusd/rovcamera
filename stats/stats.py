@@ -271,22 +271,30 @@ _ros2_running    = False   # prevents concurrent refreshes
 
 def _run_ros2_refresh():
     global _ros2_running
+    print("[ros2] refresh started", flush=True)
     try:
         r = subprocess.run(
             ["nice", "-n", "19", "ros2", "node", "list"],
             capture_output=True, timeout=10,
         )
-        nodes = sorted(n for n in r.stdout.decode().splitlines() if n.startswith("/"))
+        stdout = r.stdout.decode().strip()
+        stderr = r.stderr.decode().strip()
+        print(f"[ros2] rc={r.returncode} stdout={stdout!r} stderr={stderr[-200:]!r}", flush=True)
+        nodes = sorted(n for n in stdout.splitlines() if n.startswith("/"))
         result = {"available": True, "count": len(nodes), "nodes": nodes}
-    except FileNotFoundError:
+    except FileNotFoundError as e:
+        print(f"[ros2] not found: {e}", flush=True)
         result = {"available": False, "nodes": [], "error": "ros2 not on PATH"}
     except subprocess.TimeoutExpired:
+        print("[ros2] timeout", flush=True)
         result = {"available": True, "nodes": [], "error": "timeout"}
     except Exception as e:
+        print(f"[ros2] error: {e}", flush=True)
         result = {"available": True, "nodes": [], "error": str(e)}
     with _ros2_cache_lock:
         _ros2_cache.update(result)
         _ros2_running = False
+    print(f"[ros2] refresh done: {result}", flush=True)
 
 def ros2_refresh():
     """Trigger a non-blocking refresh; returns immediately."""
