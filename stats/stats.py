@@ -151,31 +151,7 @@ def process_cpu_breakdown():
         "ffmpeg":   named_entry("ffmpeg"),
     }
 
-    # ROS2 node pids via ros2 node info (best-effort)
-    ros2_proc = {}
-    if os.path.exists(ROS2_SETUP):
-        try:
-            preamble = _ros2_preamble()
-            cmd = preamble + " && ros2 node list 2>/dev/null"
-            r = subprocess.run(["bash","-c",cmd], capture_output=True, timeout=5)
-            nodes = [n for n in r.stdout.decode().splitlines() if n.startswith("/")]
-            for node in nodes:
-                # ros2 node info gives the PID
-                cmd2 = preamble + f" && ros2 node info {node} 2>/dev/null"
-                r2 = subprocess.run(["bash","-c",cmd2], capture_output=True, timeout=3)
-                for line in r2.stdout.decode().splitlines():
-                    if "pid" in line.lower():
-                        try:
-                            pid = int(re.search(r'\d+', line).group())
-                            entry = cpu_by_pid.get(pid, {"pid": pid, "name": node, "cpu_pct": None})
-                            ros2_proc[node] = entry
-                        except Exception:
-                            pass
-                        break
-        except Exception:
-            pass
-    named["ros2"] = ros2_proc
-
+    named["ros2"] = {}   # populated separately via rclpy, not subprocess
     return {"top5": top5, "named": named}
 
 # ── system collectors ─────────────────────────────────────────
@@ -285,18 +261,46 @@ def throttle_flags():
     except Exception:
         return {"raw":None,"error":"vcgencmd unavailable"}
 
+# ── ROS2 via rclpy (no subprocess, no bash sourcing) ──────────
+_rclpy      = None   # module, set on first successful import
+_ros2_node  = None   # long-lived rclpy node
+_ros2_lock  = threading.Lock()
+
+def _ensure_ros2_node():
+    global _rclpy, _ros2_node
+    if _rclpy is None:
+        try:
+            import rclpy as _rclpy_mod
+            _rclpy = _rclpy_mod
+        except ImportError:
+            return False
+    try:
+        os.environ.setdefault("ROS_DOMAIN_ID", ROS_DOMAIN_ID)
+        if not _rclpy.ok():
+            _rclpy.init()
+        if _ros2_node is None:
+            _ros2_node = _rclpy.create_node("rov_stats_monitor")
+        return True
+    except Exception:
+        return False
+
 def ros2_nodes():
     if not os.path.exists(ROS2_SETUP):
-        return {"available":False,"nodes":[],"error":f"setup not found: {ROS2_SETUP}"}
-    try:
-        cmd = _ros2_preamble() + " && ros2 node list 2>/dev/null"
-        r=subprocess.run(["bash","-c",cmd], capture_output=True, timeout=5)
-        nodes=[n for n in r.stdout.decode().strip().splitlines() if n.startswith("/")]
-        return {"available":True,"count":len(nodes),"nodes":nodes}
-    except subprocess.TimeoutExpired:
-        return {"available":True,"nodes":[],"error":"timeout"}
-    except Exception as e:
-        return {"available":True,"nodes":[],"error":str(e)}
+        return {"available": False, "nodes": [], "error": f"ROS2 not found: {ROS2_SETUP}"}
+    with _ros2_lock:
+        if not _ensure_ros2_node():
+            return {"available": False, "nodes": [], "error": "rclpy unavailable"}
+        try:
+            _rclpy.spin_once(_ros2_node, timeout_sec=0.5)
+            pairs = _ros2_node.get_node_names_and_namespaces()
+            nodes = sorted(
+                f"{ns.rstrip('/')}/{name}"
+                for name, ns in pairs
+                if name != "rov_stats_monitor"
+            )
+            return {"available": True, "count": len(nodes), "nodes": nodes}
+        except Exception as e:
+            return {"available": True, "nodes": [], "error": str(e)}
 
 def process_count(name):
     try:

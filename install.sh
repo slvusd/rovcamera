@@ -126,11 +126,12 @@ install_stats() {
 
     mkdir -p "$STATS_DIR"
 
-    # Create venv if needed
-    if [ ! -d "$STATS_DIR/venv" ]; then
+    # Create venv with system-site-packages so rclpy is visible
+    if [ ! -x "$STATS_DIR/venv/bin/python3" ]; then
+        [ -d "$STATS_DIR/venv" ] && rm -rf "$STATS_DIR/venv"
         echo "  Creating venv..."
-        python3 -m venv "$STATS_DIR/venv"
-        ok "venv created (stdlib only, no pip installs needed)."
+        python3 -m venv --system-site-packages "$STATS_DIR/venv"
+        ok "venv created."
     else
         ok "venv already exists."
     fi
