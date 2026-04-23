@@ -267,9 +267,10 @@ _rclpy      = None   # module, set on first successful import
 _ros2_node  = None   # long-lived rclpy node
 _ros2_lock  = threading.Lock()
 
+_ros2_init_error = None   # last error string from _ensure_ros2_node
+
 def _ensure_ros2_node():
-    global _rclpy, _ros2_node
-    # Set env vars before rclpy.init() so DDS uses the same discovery config
+    global _rclpy, _ros2_node, _ros2_init_error
     os.environ["ROS_DOMAIN_ID"] = ROS_DOMAIN_ID
     if os.path.exists(FASTDDS_PROFILE):
         os.environ["FASTRTPS_DEFAULT_PROFILES_FILE"] = FASTDDS_PROFILE
@@ -277,23 +278,24 @@ def _ensure_ros2_node():
         try:
             import rclpy as _rclpy_mod
             _rclpy = _rclpy_mod
-        except ImportError:
+        except ImportError as e:
+            _ros2_init_error = f"rclpy import failed: {e}"
             return False
     try:
         if not _rclpy.ok():
             _rclpy.init()
         if _ros2_node is None:
             _ros2_node = _rclpy.create_node("rov_stats_monitor")
+        _ros2_init_error = None
         return True
-    except Exception:
+    except Exception as e:
+        _ros2_init_error = str(e)
         return False
 
 def ros2_nodes():
-    if not os.path.exists(ROS2_SETUP):
-        return {"available": False, "nodes": [], "error": f"ROS2 not found: {ROS2_SETUP}"}
     with _ros2_lock:
         if not _ensure_ros2_node():
-            return {"available": False, "nodes": [], "error": "rclpy unavailable"}
+            return {"available": False, "nodes": [], "error": _ros2_init_error or "rclpy not available"}
         try:
             _rclpy.spin_once(_ros2_node, timeout_sec=0.5)
             pairs = _ros2_node.get_node_names_and_namespaces()
