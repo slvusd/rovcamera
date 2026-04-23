@@ -195,7 +195,7 @@ install_ui() {
     fi
 
     echo "  Installing Python dependencies..."
-    "$UI_DIR/venv/bin/pip" install --quiet -r "$UI_DIR/requirements.txt"
+    "$UI_DIR/venv/bin/pip" install --quiet --isolated -r "$UI_DIR/requirements.txt"
     ok "Dependencies installed."
 
     service_install "rov-ui" \
