@@ -10,7 +10,7 @@
 # GET /stats/quick    minimal dict for UI polling
 # ============================================================
 
-import collections, json, os, re, subprocess, threading, time, urllib.request
+import collections, json, os, re, subprocess, tempfile, threading, time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 PORT       = 9000
@@ -19,8 +19,7 @@ SAMPLE_S   = 5
 MAX_POINTS = HISTORY_S // SAMPLE_S          # 120 points
 NUM_CORES  = os.cpu_count() or 4
 
-CAMS          = ["cam0", "cam1", "cam2"]
-HLS_PORT      = 8888
+CAMS           = ["cam0", "cam1", "cam2"]
 THUMB_INTERVAL = 60   # seconds between grabs
 ROS2_SETUP    = "/opt/ros/jazzy/setup.bash"
 SLVROV_SETUP  = "/home/pi/slvrov_ros/install/setup.bash"
@@ -45,18 +44,39 @@ cam_thumbs   = {}   # cam -> jpeg bytes
 cam_thumb_ts = {}   # cam -> epoch timestamp of last successful grab
 cam_lock     = threading.Lock()
 
+def grab_thumbnail(cam):
+    """Grab one frame from RTSP via ffmpeg, return JPEG bytes or None."""
+    tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+    tmp_path = tmp.name
+    tmp.close()
+    try:
+        r = subprocess.run(
+            ["ffmpeg", "-y",
+             "-rtsp_transport", "tcp",
+             "-timeout", "5000000",
+             "-i", f"rtsp://127.0.0.1:8554/{cam}",
+             "-frames:v", "1", "-q:v", "5",
+             "-vf", "scale=320:-1",
+             tmp_path],
+            capture_output=True, timeout=10,
+        )
+        if r.returncode == 0 and os.path.getsize(tmp_path) > 0:
+            with open(tmp_path, "rb") as f:
+                return f.read()
+    except Exception:
+        pass
+    finally:
+        try: os.unlink(tmp_path)
+        except Exception: pass
+    return None
+
 def grab_thumbnails():
     for cam in CAMS:
-        url = f"http://127.0.0.1:{HLS_PORT}/{cam}/thumbnail.jpg"
-        try:
-            with urllib.request.urlopen(url, timeout=5) as r:
-                if r.status == 200:
-                    data = r.read()
-                    with cam_lock:
-                        cam_thumbs[cam]   = data
-                        cam_thumb_ts[cam] = time.time()
-        except Exception:
-            pass
+        data = grab_thumbnail(cam)
+        if data:
+            with cam_lock:
+                cam_thumbs[cam]   = data
+                cam_thumb_ts[cam] = time.time()
 
 def thumbnail_sampler():
     while True:
