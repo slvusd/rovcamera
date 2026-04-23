@@ -137,7 +137,7 @@ def process_cpu_breakdown():
             cpu_by_pid[pid] = {"pid": pid, "name": name, "cpu_pct": max(0.0, pct)}
 
     # top 5 by cpu%
-    top5 = sorted(cpu_by_pid.values(), key=lambda x: x["cpu_pct"], reverse=True)[:5]
+    top5 = sorted(cpu_by_pid.values(), key=lambda x: x["cpu_pct"], reverse=True)[:10]
 
     # named processes
     def named_entry(proc_name):
@@ -557,7 +557,7 @@ footer{font-family:var(--mono);font-size:.6rem;color:var(--dim);
 
   <!-- Per-process CPU — top 5 -->
   <div class="card" style="grid-column:span 2">
-    <div class="card-title">TOP PROCESSES BY CPU%</div>
+    <div class="card-title">TOP 10 PROCESSES BY CPU%</div>
     <table class="proc-table">
       <thead><tr><th>PID</th><th>NAME</th><th>CPU%</th><th></th></tr></thead>
       <tbody id="top5-body"></tbody>
