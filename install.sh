@@ -185,17 +185,14 @@ install_ui() {
 
     service_stop "rov-ui"
 
-    # Create / update venv (recreate if pip is missing or broken)
-    if [ ! -x "$UI_DIR/venv/bin/pip" ]; then
-        [ -d "$UI_DIR/venv" ] && echo "  Recreating broken venv..." || echo "  Creating venv..."
-        rm -rf "$UI_DIR/venv"
-        python3 -m venv "$UI_DIR/venv"
-    else
-        ok "venv already exists."
-    fi
+    # Always rebuild the venv from the system Python to avoid inheriting
+    # whatever venv the shell has activated.
+    echo "  Rebuilding venv..."
+    rm -rf "$UI_DIR/venv"
+    /usr/bin/python3 -m venv "$UI_DIR/venv"
 
     echo "  Installing Python dependencies..."
-    "$UI_DIR/venv/bin/pip" install --quiet --isolated -r "$UI_DIR/requirements.txt"
+    "$UI_DIR/venv/bin/pip" install --quiet -r "$UI_DIR/requirements.txt"
     ok "Dependencies installed."
 
     service_install "rov-ui" \
