@@ -90,6 +90,10 @@ srt: no
 pathDefaults:
   source: publisher
   record: no
+  recordPath: /home/pi/rov_sessions/recordings/%path/%Y-%m-%d_%H-%M-%S
+  recordFormat: fmp4
+  recordSegmentDuration: 10m
+  recordDeleteAfter: 504h   # 21 days
 
 ###############################################
 # Paths

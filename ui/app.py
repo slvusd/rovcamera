@@ -2,6 +2,9 @@ import os
 import signal
 import subprocess
 import glob
+import urllib.request
+import urllib.error
+import json as _json
 from flask import Flask, render_template, jsonify, send_from_directory, request
 
 app = Flask(__name__)
@@ -72,6 +75,47 @@ def index():
     client_ip = request.remote_addr or "unknown"
     return render_template("index.html", host=host, port=MEDIAMTX_PORT,
                            client_ip=client_ip)
+
+
+# ── MediaMTX recording toggle ──────────────────────────────────────────────────
+
+MEDIAMTX_API = "http://127.0.0.1:9997"
+
+def _mtx_patch(path: str, body: dict):
+    data = _json.dumps(body).encode()
+    req = urllib.request.Request(
+        f"{MEDIAMTX_API}{path}",
+        data=data,
+        method="PATCH",
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=3) as r:
+        return r.status
+
+@app.route("/recording/start", methods=["POST"])
+def recording_start():
+    try:
+        _mtx_patch("/v3/config/pathDefaults/patch", {"record": True})
+        return jsonify({"recording": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/recording/stop", methods=["POST"])
+def recording_stop():
+    try:
+        _mtx_patch("/v3/config/pathDefaults/patch", {"record": False})
+        return jsonify({"recording": False})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/recording/status")
+def recording_status():
+    try:
+        with urllib.request.urlopen(f"{MEDIAMTX_API}/v3/config/pathDefaults/get", timeout=3) as r:
+            cfg = _json.loads(r.read())
+        return jsonify({"recording": cfg.get("record", False)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ── Static session files (frames + blend previews) ─────────────────────────────

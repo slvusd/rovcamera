@@ -14,6 +14,7 @@
     <span class="logo">⬡ ROV</span>
     <span class="subtitle">CONTROL STATION</span>
     <span class="host-badge" title="your IP: {{ client_ip }}">{{ host }}:{{ port }}</span>
+    <button class="btn btn-record" id="btn-record" onclick="toggleRecording()">⏺ RECORD</button>
     <span class="status-bar" id="global-status">STANDBY</span>
   </header>
 
@@ -266,6 +267,33 @@
       if (e.key === "ArrowRight") galleryNav(1);
       if (e.key === "ArrowLeft")  galleryNav(-1);
     });
+
+    // ── Recording ────────────────────────────────────────────────────
+    let _recording = false;
+
+    function setRecordingUI(on) {
+      _recording = on;
+      const btn = document.getElementById("btn-record");
+      btn.textContent = on ? "⏹ STOP REC" : "⏺ RECORD";
+      btn.classList.toggle("active", on);
+    }
+
+    async function toggleRecording() {
+      const url = _recording ? "/recording/stop" : "/recording/start";
+      const r = await fetch(url, { method: "POST" });
+      const d = await r.json();
+      if (r.ok) {
+        setRecordingUI(d.recording);
+        setStatus(d.recording ? "Recording started" : "Recording stopped");
+      } else {
+        setStatus(`Recording error: ${d.error ?? r.status}`);
+      }
+    }
+
+    // Sync button state with server on load
+    fetch("/recording/status").then(r => r.json()).then(d => {
+      if (d.recording != null) setRecordingUI(d.recording);
+    }).catch(() => {});
 
     // ── Status bar ───────────────────────────────────────────────────
     function setStatus(msg) {
