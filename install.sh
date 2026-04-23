@@ -170,9 +170,10 @@ install_ui() {
 
     service_stop "rov-ui"
 
-    # Create / update venv
-    if [ ! -d "$UI_DIR/venv" ]; then
-        echo "  Creating venv..."
+    # Create / update venv (recreate if pip is missing or broken)
+    if [ ! -x "$UI_DIR/venv/bin/pip" ]; then
+        [ -d "$UI_DIR/venv" ] && echo "  Recreating broken venv..." || echo "  Creating venv..."
+        rm -rf "$UI_DIR/venv"
         python3 -m venv "$UI_DIR/venv"
     else
         ok "venv already exists."
