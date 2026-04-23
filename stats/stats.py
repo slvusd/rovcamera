@@ -269,6 +269,33 @@ _ros2_cache      = {"available": False, "nodes": [], "error": "click ⟳ to chec
 _ros2_cache_lock = threading.Lock()
 _ros2_running    = False   # prevents concurrent refreshes
 
+def _local_ip_suffix():
+    """Return the last octet of this machine's primary IP, e.g. '.52'."""
+    try:
+        r = subprocess.run(["hostname", "-I"], capture_output=True, timeout=2)
+        ips = r.stdout.decode().split()
+        if ips:
+            return "." + ips[0].split(".")[-1]
+    except Exception:
+        pass
+    return ""
+
+def _node_host(name):
+    """Return host label for a node: '.52' if local, 'remote' if not."""
+    try:
+        r = subprocess.run(
+            ["nice", "-n", "19", "ros2", "node", "info", name],
+            capture_output=True, timeout=6,
+        )
+        for line in r.stdout.decode().splitlines():
+            m = re.search(r'\bpid[:\s]+(\d+)', line, re.IGNORECASE)
+            if m:
+                pid = int(m.group(1))
+                return _local_ip_suffix() if os.path.exists(f"/proc/{pid}") else "remote"
+    except Exception:
+        pass
+    return "?"
+
 def _run_ros2_refresh():
     global _ros2_running
     print("[ros2] refresh started", flush=True)
@@ -277,24 +304,22 @@ def _run_ros2_refresh():
             ["nice", "-n", "19", "ros2", "node", "list"],
             capture_output=True, timeout=10,
         )
-        stdout = r.stdout.decode().strip()
-        stderr = r.stderr.decode().strip()
-        print(f"[ros2] rc={r.returncode} stdout={stdout!r} stderr={stderr[-200:]!r}", flush=True)
-        nodes = sorted(n for n in stdout.splitlines() if n.startswith("/"))
-        result = {"available": True, "count": len(nodes), "nodes": nodes, "error": None}
-    except FileNotFoundError as e:
-        print(f"[ros2] not found: {e}", flush=True)
-        result = {"available": False, "nodes": [], "error": "ros2 not on PATH"}
+        names = sorted(n for n in r.stdout.decode().splitlines() if n.startswith("/"))
+        nodes = [{"name": n, "host": _node_host(n)} for n in names]
+        result = {"available": True, "count": len(nodes), "nodes": nodes,
+                  "error": None, "ts": time.time()}
+        print(f"[ros2] found {len(nodes)} nodes", flush=True)
+    except FileNotFoundError:
+        result = {"available": False, "nodes": [], "error": "ros2 not on PATH", "ts": time.time()}
     except subprocess.TimeoutExpired:
-        print("[ros2] timeout", flush=True)
-        result = {"available": True, "nodes": [], "error": "timeout"}
+        result = {"available": True,  "nodes": [], "error": "timeout", "ts": time.time()}
     except Exception as e:
-        print(f"[ros2] error: {e}", flush=True)
-        result = {"available": True, "nodes": [], "error": str(e)}
+        result = {"available": True,  "nodes": [], "error": str(e), "ts": time.time()}
     with _ros2_cache_lock:
+        _ros2_cache.clear()
         _ros2_cache.update(result)
         _ros2_running = False
-    print(f"[ros2] refresh done: {result}", flush=True)
+    print(f"[ros2] refresh done", flush=True)
 
 def ros2_refresh():
     """Trigger a non-blocking refresh; returns immediately."""
@@ -709,13 +734,21 @@ async function update(){
 
     // ros2
     const ros=l.ros2??{};
-    document.getElementById('ros2-count').textContent=ros.count!=null?`(${ros.count})`:'';
+    const tsStr=ros.ts?new Date(ros.ts*1000).toLocaleTimeString():'—';
+    document.getElementById('ros2-count').textContent=ros.count!=null?`(${ros.count}) — ${tsStr}`:'';
     const rs=document.getElementById('ros2-status');
     const nl=document.getElementById('ros2-nodes');
     if(!ros.available){rs.textContent='NOT INSTALLED';rs.className='pill dim';nl.innerHTML='<span class="node-none">ROS2 not found</span>'}
     else if(ros.error){rs.textContent='ERROR';rs.className='pill warn';nl.innerHTML=`<span class="node-none">${ros.error}</span>`}
     else if(!ros.nodes?.length){rs.textContent='NO NODES';rs.className='pill warn';nl.innerHTML='<span class="node-none">No nodes running</span>'}
-    else{rs.textContent='ACTIVE';rs.className='pill ok';nl.innerHTML=ros.nodes.map(n=>`<span>${n}</span>`).join('')}
+    else{
+      rs.textContent='ACTIVE';rs.className='pill ok';
+      nl.innerHTML=ros.nodes.map(n=>{
+        const name=n.name??n;
+        const host=n.host??'';
+        return `<span>${name} <span style="color:var(--accent);opacity:.6">${host}</span></span>`;
+      }).join('');
+    }
 
     // cameras
     const cams=l.cameras??{};
