@@ -366,6 +366,22 @@ def recordings_list():
     all_names = sorted({s["name"] for cam in CAMS for s in segments[cam]})
     return {"segments": segments, "all_names": all_names}
 
+def pca9685_service_active():
+    """Return True/False for slvrov-pca9685 active state, None if unit not found."""
+    try:
+        r = subprocess.run(
+            ["systemctl", "is-active", "slvrov-pca9685"],
+            capture_output=True, text=True, timeout=3,
+        )
+        status = r.stdout.strip()
+        if status == "active":
+            return True
+        if status in ("inactive", "failed", "dead"):
+            return False
+        return None
+    except Exception:
+        return None
+
 def recording_status():
     """Query MediaMTX API for per-cam record setting."""
     out = {}
@@ -413,6 +429,7 @@ def snapshot():
         "throttle":throttle_flags(),
         "ros2":ros2_nodes(),
         "recording":recording_status(),
+        "pca9685_active":pca9685_service_active(),
         "cameras":{cam:{"ok": cam in cam_thumbs,
                          "fresh": cam in cam_thumbs and (time.time()-cam_thumb_ts.get(cam,0))<30
                         } for cam in CAMS},
@@ -604,6 +621,12 @@ footer{font-family:var(--mono);font-size:.6rem;color:var(--dim);
       <span style="display:flex;align-items:center;gap:6px">
         <span id="rec-status" class="pill dim">—</span>
         <button id="rec-btn" onclick="toggleRecording()" style="font-family:var(--mono);font-size:.55rem;background:transparent;border:1px solid var(--border);color:var(--text);padding:2px 8px;border-radius:2px;cursor:pointer;letter-spacing:1px">⏺ REC</button>
+      </span>
+    </div>
+    <div class="row" style="margin-top:6px"><span>THRUSTERS</span>
+      <span style="display:flex;align-items:center;gap:6px">
+        <span id="pca-status" class="pill dim">—</span>
+        <button id="pca-btn" onclick="toggleThrusters()" style="font-family:var(--mono);font-size:.55rem;background:transparent;border:1px solid var(--border);color:var(--text);padding:2px 8px;border-radius:2px;cursor:pointer;letter-spacing:1px">⚡ START</button>
       </span>
     </div>
     <br>
@@ -802,6 +825,14 @@ async function update(){
     else if(anyRec){rse.textContent='RECORDING';rse.className='pill danger';rbn.textContent='⏹ STOP';rbn.disabled=false;}
     else{rse.textContent='OFF';rse.className='pill dim';rbn.textContent='⏺ REC';rbn.disabled=false;}
 
+    // thrusters
+    const pca=l.pca9685_active;
+    const pse=document.getElementById('pca-status');
+    const pbn=document.getElementById('pca-btn');
+    if(pca===null||pca===undefined){pse.textContent='—';pse.className='pill dim';}
+    else if(pca){pse.textContent='ON';pse.className='pill ok';pbn.textContent='⬛ STOP';pbn.disabled=false;}
+    else{pse.textContent='OFF';pse.className='pill dim';pbn.textContent='⚡ START';pbn.disabled=false;}
+
     // ros2
     const ros=l.ros2??{};
     const tsStr=ros.ts?new Date(ros.ts*1000).toLocaleTimeString():'—';
@@ -854,6 +885,14 @@ async function toggleRecording(){
   btn.disabled=true;
   try{ await fetch('/recording/toggle',{method:'POST'}); }catch(e){console.warn(e);}
   setTimeout(()=>{btn.disabled=false;update();},600);
+}
+async function toggleThrusters(){
+  const btn=document.getElementById('pca-btn');
+  const sse=document.getElementById('pca-status');
+  btn.disabled=true;
+  const on=sse.textContent.trim()==='ON';
+  try{ await fetch('/pca9685/'+(on?'stop':'start'),{method:'POST'}); }catch(e){console.warn(e);}
+  setTimeout(()=>{btn.disabled=false;update();},800);
 }
 update();setInterval(update,POLL_MS);
 </script>
@@ -1079,6 +1118,7 @@ class Handler(BaseHTTPRequestHandler):
                 "throttle_issue":l.get("throttle",{}).get("any_issue_now"),
                 "ros2_nodes":l.get("ros2",{}).get("count",0),
                 "uptime":l.get("uptime",{}).get("human"),
+                "pca9685_active":l.get("pca9685_active"),
             })
         else:self.send_response(404);self.end_headers()
 
@@ -1094,6 +1134,16 @@ class Handler(BaseHTTPRequestHandler):
             currently = any(v is True for v in rec.values())
             errors = recording_set(not currently)
             self._json({"recording": not currently, "errors": errors})
+        elif path in ("/pca9685/start", "/pca9685/stop"):
+            action = "start" if path.endswith("/start") else "stop"
+            try:
+                subprocess.run(
+                    ["sudo", "systemctl", action, "slvrov-pca9685"],
+                    timeout=10, capture_output=True,
+                )
+                self._json({"status": "ok", "action": action})
+            except Exception as e:
+                self._json({"status": "error", "message": str(e)})
         else:self.send_response(404);self.end_headers()
 
     def _json(self,data):
