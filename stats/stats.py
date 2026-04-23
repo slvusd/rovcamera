@@ -11,6 +11,7 @@
 # ============================================================
 
 import collections, glob, json, os, re, subprocess, threading, time
+import urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 PORT       = 9000
@@ -26,6 +27,7 @@ ROS2_SETUP       = "/opt/ros/jazzy/setup.bash"
 SLVROV_SETUP     = "/home/pi/slvrov_ros/install/setup.bash"
 ROS_DOMAIN_ID    = "42"
 FASTDDS_PROFILE  = "/home/pi/fastdds_config.xml"
+MTX_API          = "http://localhost:9997"
 
 # Shell preamble mirroring start_rov.sh — sources both workspaces
 # and sets domain ID so we see the same nodes
@@ -343,6 +345,35 @@ def process_count(name):
 
 def process_running(name): return process_count(name)>0
 
+def recording_status():
+    """Query MediaMTX API for per-cam record setting."""
+    out = {}
+    for cam in CAMS:
+        try:
+            with urllib.request.urlopen(f"{MTX_API}/v3/config/paths/get/{cam}", timeout=2) as r:
+                data = json.loads(r.read())
+            out[cam] = bool(data.get("record", False))
+        except Exception:
+            out[cam] = None
+    return out
+
+def recording_set(enable):
+    """PATCH record=enable on all cams via MediaMTX API. Returns list of errors."""
+    errors = []
+    body = json.dumps({"record": enable}).encode()
+    for cam in CAMS:
+        try:
+            req = urllib.request.Request(
+                f"{MTX_API}/v3/config/paths/patch/{cam}",
+                data=body,
+                headers={"Content-Type": "application/json"},
+                method="PATCH",
+            )
+            urllib.request.urlopen(req, timeout=2).close()
+        except Exception as e:
+            errors.append(f"{cam}: {e}")
+    return errors
+
 # ── snapshot ──────────────────────────────────────────────────
 
 def snapshot():
@@ -360,6 +391,7 @@ def snapshot():
         "proc_cpu": process_cpu_breakdown(),
         "throttle":throttle_flags(),
         "ros2":ros2_nodes(),
+        "recording":recording_status(),
         "cameras":{cam:{"ok": cam in cam_thumbs,
                          "fresh": cam in cam_thumbs and (time.time()-cam_thumb_ts.get(cam,0))<30
                         } for cam in CAMS},
@@ -546,6 +578,12 @@ footer{font-family:var(--mono);font-size:.6rem;color:var(--dim);
       <span><span id="proc-ffmpeg" class="pill dim">—</span>
             &nbsp;<span id="proc-ffmpeg-count" style="font-family:var(--mono);font-size:.65rem;color:var(--dim)"></span>
       </span></div>
+    <div class="row" style="margin-top:10px"><span>RECORDING</span>
+      <span style="display:flex;align-items:center;gap:6px">
+        <span id="rec-status" class="pill dim">—</span>
+        <button id="rec-btn" onclick="toggleRecording()" style="font-family:var(--mono);font-size:.55rem;background:transparent;border:1px solid var(--border);color:var(--text);padding:2px 8px;border-radius:2px;cursor:pointer;letter-spacing:1px">⏺ REC</button>
+      </span>
+    </div>
     <br>
     <div class="card-title">ROS2 NODES <span id="ros2-count" style="color:var(--dim)"></span>
       <button onclick="refreshRos2()" style="margin-left:8px;font-family:var(--mono);font-size:.55rem;background:transparent;border:1px solid var(--border);color:var(--text-dim);padding:1px 6px;border-radius:2px;cursor:pointer">⟳</button>
@@ -732,6 +770,16 @@ async function update(){
     setPill('proc-mediamtx',l.processes?.mediamtx?.running);
     setPill('proc-ffmpeg',  l.processes?.ffmpeg?.running,l.processes?.ffmpeg?.count);
 
+    // recording
+    const rec=l.recording??{};
+    const anyRec=Object.values(rec).some(v=>v===true);
+    const allNull=Object.values(rec).every(v=>v===null||v===undefined);
+    const rse=document.getElementById('rec-status');
+    const rbn=document.getElementById('rec-btn');
+    if(allNull){rse.textContent='OFFLINE';rse.className='pill dim';rbn.disabled=true;}
+    else if(anyRec){rse.textContent='RECORDING';rse.className='pill danger';rbn.textContent='⏹ STOP';rbn.disabled=false;}
+    else{rse.textContent='OFF';rse.className='pill dim';rbn.textContent='⏺ REC';rbn.disabled=false;}
+
     // ros2
     const ros=l.ros2??{};
     const tsStr=ros.ts?new Date(ros.ts*1000).toLocaleTimeString():'—';
@@ -778,6 +826,12 @@ refreshCamImages();
 setInterval(refreshCamImages,5000);
 function refreshRos2(){
   fetch('/ros2/refresh',{method:'POST'}).catch(()=>{});
+}
+async function toggleRecording(){
+  const btn=document.getElementById('rec-btn');
+  btn.disabled=true;
+  try{ await fetch('/recording/toggle',{method:'POST'}); }catch(e){console.warn(e);}
+  setTimeout(()=>{btn.disabled=false;update();},600);
 }
 update();setInterval(update,POLL_MS);
 </script>
@@ -827,6 +881,13 @@ class Handler(BaseHTTPRequestHandler):
         if path=="/ros2/refresh":
             ros2_refresh()
             self._json({"status":"refreshing"})
+        elif path=="/recording/toggle":
+            with history_lock:
+                last = history[-1] if history else {}
+            rec = last.get("recording", {})
+            currently = any(v is True for v in rec.values())
+            errors = recording_set(not currently)
+            self._json({"recording": not currently, "errors": errors})
         else:self.send_response(404);self.end_headers()
 
     def _json(self,data):
