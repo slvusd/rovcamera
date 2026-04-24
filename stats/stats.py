@@ -28,6 +28,7 @@ SLVROV_SETUP     = "/home/pi/slvrov_ros/install/setup.bash"
 ROS_DOMAIN_ID    = "42"
 FASTDDS_PROFILE  = "/home/pi/fastdds_config.xml"
 MTX_API          = "http://localhost:9997"
+SESSION_BASE     = "/home/pi/rov_sessions"
 RECORDINGS_BASE  = "/home/pi/rov_sessions/recordings"
 
 # Shell preamble mirroring start_rov.sh — sources both workspaces
@@ -338,6 +339,23 @@ def recordings_list():
     all_names = sorted({s["name"] for cam in CAMS for s in segments[cam]})
     return {"segments": segments, "all_names": all_names}
 
+def list_snapshots():
+    """Return list of {url, cam, ts} for all captured JPGs, newest first, capped at 500."""
+    results = []
+    for cam in CAMS:
+        snap_dir = os.path.join(SESSION_BASE, f"snapshots_{cam}")
+        if os.path.isdir(snap_dir):
+            for f in glob.glob(os.path.join(snap_dir, "*.jpg")):
+                results.append({"url": f"/gallery/img/snapshots_{cam}/{os.path.basename(f)}",
+                                 "cam": cam, "ts": os.path.getmtime(f)})
+        for frames_dir in glob.glob(os.path.join(SESSION_BASE, f"*_{cam}", "frames")):
+            session_name = os.path.basename(os.path.dirname(frames_dir))
+            for f in glob.glob(os.path.join(frames_dir, "*.jpg")):
+                results.append({"url": f"/gallery/img/{session_name}/frames/{os.path.basename(f)}",
+                                 "cam": cam, "ts": os.path.getmtime(f)})
+    results.sort(key=lambda x: x["ts"], reverse=True)
+    return results[:500]
+
 def pca9685_service_active():
     """Return True/False for slvrov-pca9685 active state, None if unit not found."""
     try:
@@ -481,6 +499,7 @@ footer{font-family:var(--mono);font-size:.6rem;color:var(--dim);
   <span class="logo">⬡ ROV</span>
   <span class="sub">PI STATS</span>
   <a href="/playback" style="font-family:var(--mono);font-size:.6rem;letter-spacing:1.5px;color:var(--dim);border:1px solid var(--border);border-radius:2px;padding:2px 8px;text-decoration:none">▶ PLAYBACK</a>
+  <a href="/gallery" style="font-family:var(--mono);font-size:.6rem;letter-spacing:1.5px;color:var(--dim);border:1px solid var(--border);border-radius:2px;padding:2px 8px;text-decoration:none">◈ GALLERY</a>
   <span class="uptime" id="uptime-hdr">—</span>
 </header>
 <div class="grid">
@@ -1046,12 +1065,109 @@ loadList();
 </html>
 """
 
+GALLERY_PAGE = r"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ROV Gallery</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;500&display=swap');
+:root{--bg:#0a0c0f;--surface:#111418;--border:#1e2530;--accent:#00e5ff;
+      --text:#c8d6e5;--dim:#7a9eb8;--mono:'Share Tech Mono',monospace}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Barlow',sans-serif;font-weight:300;min-height:100vh}
+header{display:flex;align-items:center;gap:10px;padding:0 16px;height:42px;
+       background:var(--surface);border-bottom:1px solid var(--border);flex-wrap:wrap}
+.logo{font-family:var(--mono);color:var(--accent);letter-spacing:3px;font-size:1rem}
+a.nav{font-family:var(--mono);font-size:.65rem;letter-spacing:1.5px;color:var(--dim);
+      border:1px solid var(--border);border-radius:2px;padding:3px 8px;
+      text-decoration:none;background:transparent}
+a.nav:hover{color:var(--text);border-color:var(--dim)}
+.filter-group{display:flex;gap:4px;margin-left:8px}
+.filter-btn{font-family:var(--mono);font-size:.6rem;letter-spacing:1px;
+            border:1px solid var(--border);border-radius:2px;padding:2px 8px;
+            cursor:pointer;background:transparent;color:var(--dim)}
+.filter-btn:hover{color:var(--text);border-color:var(--dim)}
+.filter-btn.active{color:var(--accent);border-color:var(--accent);background:rgba(0,229,255,.07)}
+.count{font-family:var(--mono);font-size:.6rem;color:var(--dim);letter-spacing:1px;margin-left:auto}
+.gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:4px;padding:4px}
+.thumb-wrap{position:relative;background:var(--surface);border:1px solid var(--border);
+            cursor:pointer;overflow:hidden;aspect-ratio:4/3}
+.thumb-wrap:hover{border-color:var(--accent)}
+.thumb-wrap img{width:100%;height:100%;object-fit:cover;display:block}
+.thumb-meta{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.75);
+            padding:3px 6px;font-family:var(--mono);font-size:.5rem;color:var(--dim);
+            display:flex;justify-content:space-between}
+.cam-tag{color:var(--accent)}
+.empty{font-family:var(--mono);font-size:.75rem;color:var(--dim);
+       text-align:center;padding:60px;letter-spacing:2px}
+</style>
+</head>
+<body>
+<header>
+  <a class="nav" href="/">← STATS</a>
+  <span class="logo">GALLERY</span>
+  <div class="filter-group">
+    <button class="filter-btn active" onclick="setFilter('all')">ALL</button>
+    <button class="filter-btn" onclick="setFilter('cam0')">CAM0</button>
+    <button class="filter-btn" onclick="setFilter('cam1')">CAM1</button>
+    <button class="filter-btn" onclick="setFilter('cam2')">CAM2</button>
+  </div>
+  <span class="count" id="count-display">loading…</span>
+</header>
+<div class="gallery-grid" id="grid"></div>
+<script>
+let allImages=[], currentFilter='all';
+function setFilter(f){
+  currentFilter=f;
+  document.querySelectorAll('.filter-btn').forEach(b=>{
+    const match=(f==='all'&&b.textContent==='ALL')||b.textContent.toLowerCase()===f;
+    b.classList.toggle('active',match);
+  });
+  render();
+}
+function render(){
+  const grid=document.getElementById('grid');
+  const imgs=currentFilter==='all'?allImages:allImages.filter(i=>i.cam===currentFilter);
+  document.getElementById('count-display').textContent=imgs.length+' images';
+  if(!imgs.length){grid.innerHTML='<div class="empty">No images found</div>';return;}
+  grid.innerHTML=imgs.map(img=>{
+    const d=new Date(img.ts*1000);
+    const label=d.toLocaleDateString()+' '+d.toLocaleTimeString();
+    return `<div class="thumb-wrap" title="${label}" onclick="window.open('${img.url}','_blank')">
+      <img src="${img.url}" loading="lazy" alt="${img.cam}">
+      <div class="thumb-meta"><span class="cam-tag">${img.cam.toUpperCase()}</span><span>${label}</span></div>
+    </div>`;
+  }).join('');
+}
+async function load(){
+  try{
+    allImages=await fetch('/gallery/data').then(r=>r.json());
+    render();
+  }catch(e){
+    document.getElementById('grid').innerHTML='<div class="empty">Failed to load images</div>';
+  }
+}
+load();
+</script>
+</body>
+</html>
+"""
+
 # ── HTTP handler ──────────────────────────────────────────────
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path=self.path.split("?")[0]
         if path=="/":self._html(DASHBOARD)
+        elif path=="/gallery":self._html(GALLERY_PAGE)
+        elif path=="/gallery/data":self._json(list_snapshots())
+        elif path.startswith("/gallery/img/"):
+            rel=path[len("/gallery/img/"):]
+            safe_base=os.path.realpath(SESSION_BASE)
+            full=os.path.realpath(os.path.join(SESSION_BASE,rel))
+            if not full.startswith(safe_base+os.sep):
+                self.send_response(403);self.end_headers()
+            else:self._file(full,"image/jpeg")
         elif path=="/playback":self._html(PLAYBACK_PAGE)
         elif path=="/recordings/list":self._json(recordings_list())
         elif path.startswith("/recordings/file/"):
