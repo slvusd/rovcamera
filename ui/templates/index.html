@@ -44,7 +44,8 @@
       <div class="cam-label">GALLERY</div>
 
       <div class="gallery-image-wrap">
-        <img id="gallery-img" src="" alt="" style="display:none">
+        <img id="gallery-img" src="" alt="" style="display:none;cursor:pointer"
+             title="Click to open full size" onclick="if(this.src)window.open(this.src,'_blank')">
         <div class="gallery-empty" id="gallery-empty">
           <span>Take a snapshot or<br>start a capture session</span>
         </div>
@@ -140,6 +141,7 @@
     }
 
     ["cam0","cam1","cam2"].forEach(c => startCam(c));
+    ["cam0","cam1","cam2"].forEach(c => refreshGallery(c));
 
     // ── Capture state ────────────────────────────────────────────────
     const capturing = { cam0: false, cam1: false, cam2: false };
