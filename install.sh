@@ -245,6 +245,32 @@ WantedBy=multi-user.target" \
     ok "mediamtx relay listening on :8889 (WebRTC) — pulling from 192.168.3.52"
 
     install_ui
+
+    # ── Stats proxy ──────────────────────────────────────────
+    log "rov-stats-proxy (forwards :9001 → ROV Pi 5 :9000)"
+
+    PROXY_SRC="$REPO/stats/stats_proxy.py"
+    [ -f "$PROXY_SRC" ] || die "stats_proxy.py not found at $PROXY_SRC"
+
+    service_stop "rov-stats-proxy"
+
+    service_install "rov-stats-proxy" \
+"[Unit]
+Description=ROV Stats Proxy (Pi 4 → Pi 5 :9000)
+After=network.target
+
+[Service]
+Type=simple
+User=${USER}
+ExecStart=/usr/bin/python3 ${PROXY_SRC}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target" \
+        "rov-stats-proxy"
+
+    ok "Stats proxy at http://$(hostname -I | awk '{print $1}'):9001/"
 }
 
 case "$INSTALL_TARGET" in
