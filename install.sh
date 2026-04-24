@@ -245,8 +245,10 @@ WantedBy=multi-user.target" \
     ok "mediamtx relay listening on :8889 (WebRTC) — pulling from 192.168.3.52"
 
     install_ui
+    install_proxy
+}
 
-    # ── Stats proxy ──────────────────────────────────────────
+install_proxy() {
     log "rov-stats-proxy (forwards :9001 → ROV Pi 5 :9000)"
 
     PROXY_SRC="$REPO/stats/stats_proxy.py"
@@ -283,15 +285,17 @@ case "$INSTALL_TARGET" in
     stats)    install_stats    ;;
     ui)       install_ui       ;;
     pi4)      install_pi4      ;;
+    proxy)    install_proxy    ;;
     *)
         echo ""
-        echo "Usage: $0 [all|mediamtx|stats|ui|pi4]"
+        echo "Usage: $0 [all|mediamtx|stats|ui|pi4|proxy]"
         echo ""
         echo "  all       Install/reinstall everything (ROV Pi 5, default)"
         echo "  mediamtx  Reinstall mediamtx service only"
         echo "  stats     Reinstall rov-stats service only"
         echo "  ui        Reinstall rov-ui (Flask) service only"
-        echo "  pi4       Install Pi 4 surface relay (mediamtx + ui, no cameras)"
+        echo "  pi4       Install Pi 4 surface relay (mediamtx + ui + proxy)"
+        echo "  proxy     Install/reinstall stats proxy only (:9001 → ROV :9000)"
         echo ""
         exit 1
         ;;
