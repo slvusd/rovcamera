@@ -105,7 +105,10 @@ paths:
       -i /dev/video0
       -filter_complex "[0:v]vflip,hflip,split=2[rtsp][thumb];[thumb]fps=1/5[thumbout]"
       -map "[rtsp]"
-      -c:v h264_v4l2m2m -b:v 1200k -g 15 -pix_fmt yuv420p
+      -c:v libx264 -preset ultrafast -tune zerolatency
+      -pix_fmt yuv420p -b:v 1200k
+      -g 15 -keyint_min 15 -sc_threshold 0
+      -profile:v baseline -level 3.1
       -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
       -map "[thumbout]" -update 1 -q:v 4 /tmp/thumb_cam0.jpg
     runOnInitRestart: yes
@@ -115,7 +118,10 @@ paths:
       -i /dev/video4
       -filter_complex "[0:v]split=2[rtsp][thumb];[thumb]fps=1/5[thumbout]"
       -map "[rtsp]"
-      -c:v h264_v4l2m2m -b:v 1200k -g 15 -pix_fmt yuv420p
+      -c:v libx264 -preset ultrafast -tune zerolatency
+      -pix_fmt yuv420p -b:v 1200k
+      -g 15 -keyint_min 15 -sc_threshold 0
+      -profile:v baseline -level 3.1
       -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
       -map "[thumbout]" -update 1 -q:v 4 /tmp/thumb_cam1.jpg
     runOnInitRestart: yes
@@ -125,7 +131,10 @@ paths:
       -i /dev/video8
       -filter_complex "[0:v]split=2[rtsp][thumb];[thumb]fps=1/5[thumbout]"
       -map "[rtsp]"
-      -c:v h264_v4l2m2m -b:v 1200k -g 15 -pix_fmt yuv420p
+      -c:v libx264 -preset ultrafast -tune zerolatency
+      -pix_fmt yuv420p -b:v 1200k
+      -g 15 -keyint_min 15 -sc_threshold 0
+      -profile:v baseline -level 3.1
       -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
       -map "[thumbout]" -update 1 -q:v 4 /tmp/thumb_cam2.jpg
     runOnInitRestart: yes
